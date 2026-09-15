@@ -79,8 +79,12 @@ export const api = {
   telegramDetect: (body) => request("POST", "/api/telegram/detect", body),
   scanner: () => request("GET", "/api/scanner"),
   mt5Status: () => request("GET", "/api/mt5/status"),
+  mt4Status: () => request("GET", "/api/mt4/status"),
   mt5Reconnect: () => request("POST", "/api/mt5/reconnect"),
   scanNow: () => request("POST", "/api/scanner/run"),
+  screener: (refresh = false) => request("GET", `/api/screener?${qs({ refresh: refresh || undefined })}`),
+  scaling: () => request("GET", "/api/scaling"),
+  setScaleLevel: (level) => request("POST", "/api/scaling/level", { level }),
   csvUrl: (params) => `/api/history.csv?${qs(params)}`,
   reportUrl: (symbol, tf) => `/api/report.txt?${qs({ symbol, tf })}`,
 };

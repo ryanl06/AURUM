@@ -22,10 +22,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import market_data, news
-from .analysis import analyze
 from .config import BASE_DIR, DEFAULT_FAVORITES, DEFAULT_SETTINGS, LOCAL_TZ, TIMEFRAMES
-from .market_data import MarketDataError, get_candles
+from .market_data import MarketDataError
 from .notifier import format_alert, send_telegram
+from .pipeline import analyze_symbol
 
 log = logging.getLogger("aurum.cloud")
 
@@ -88,22 +88,6 @@ def cloud_message(alert: dict, result: dict) -> str:
                      f"{html.escape(str(t.get('unit', '')))} · {html.escape(str(t.get('code', '')))}")
     head, sep, tail = text.partition("\n")
     return f"{head}\n☁️ <i>AURUM nuvem</i>\n" + tail.replace("\n\n<i>", "\n" + "\n".join(extra) + "\n\n<i>", 1)
-
-
-def analyze_symbol(symbol: str, timeframe: str, settings: dict, events: list[dict]) -> dict:
-    snap = get_candles(symbol, timeframe, force=True)
-    htf_snap = None
-    higher = TIMEFRAMES[timeframe].higher
-    if higher:
-        try:
-            htf_snap = get_candles(symbol, higher)
-        except MarketDataError as exc:
-            log.info("Tempo maior %s indisponível para %s: %s", higher, symbol, exc)
-    exchange = None
-    pair = market_data.binance_pair(symbol)
-    if pair:
-        exchange = {"binance": market_data.binance_filters(pair), "brl_per_usd": market_data.usd_brl()}
-    return analyze(snap, settings, None, htf_snap=htf_snap, risk=None, events=events, exchange=exchange)
 
 
 def run(dry_run: bool = False, config: dict | None = None, now: datetime | None = None) -> dict:

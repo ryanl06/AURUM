@@ -36,6 +36,7 @@ class Setup:
     description: str
     conditions: list[Condition]
     min_score: float  # compra exige score >= min_score; venda exige score <= -min_score
+    stop_price: pd.Series | None = None  # stop estrutural por candle (ex.: além da zona); None = stop pelo ATR
 
     def all_true(self) -> pd.Series:
         out = pd.Series(True, index=self.conditions[0].series.index)
@@ -87,6 +88,82 @@ def build_setups(df: pd.DataFrame, volume_available: bool, ctx: StrategyContext 
         if ctx.session_mask is not None:
             s.conditions.append(Condition(ctx.session_label or "Sessão líquida aberta",
                                           ctx.session_mask.reindex(df.index).fillna(False).astype(bool)))
+    return setups
+
+
+ZONE_SETUP_IDS = ("compra_suporte", "venda_resistencia", "compra_rompimento", "venda_rompimento")
+ZONE_MIN_ROOM_R = 1.0  # a zona seguinte precisa estar a pelo menos 1 risco de distância
+COVER_MAX_ATR = 1.0  # entrada coberta: no máximo 1 ATR entre o preço e a zona que protege o stop
+
+
+def build_zone_setups(df: pd.DataFrame, feat: pd.DataFrame | None, max_stop_pct: float = 3.0,
+                      session: pd.Series | None = None, session_label: str | None = None) -> list[Setup]:
+    """Entradas no gráfico atual guiadas pelas zonas principais do mensal, semanal e diário (ver zones.py).
+
+    Toda entrada é "coberta": existe uma zona principal logo atrás do preço e o stop cabe atrás dela sem
+    passar do stop máximo. Zona longe demais = sem entrada.
+    """
+    if feat is None:
+        return []
+    from .zones import stop_prices  # import local: zones depende de levels, que não depende daqui
+
+    c = df
+    stops = stop_prices(feat, c["atr"])
+    rng = (c["high"] - c["low"]).replace(0, np.nan)
+    body_strong = (c["close"] - c["open"]).abs() >= 0.5 * rng
+
+    def room(stop: pd.Series, target_level: pd.Series, long: bool) -> pd.Series:
+        risk = (c["close"] - stop) if long else (stop - c["close"])
+        space = (target_level - c["close"]) if long else (c["close"] - target_level)
+        return (space.isna() | (space >= ZONE_MIN_ROOM_R * risk)) & (risk > 0)  # sem zona à frente = caminho livre
+
+    def covered(zone_edge: pd.Series, stop: pd.Series, long: bool) -> pd.Series:
+        gap = (c["close"] - zone_edge) if long else (zone_edge - c["close"])
+        risk = (c["close"] - stop) if long else (stop - c["close"])
+        return (gap <= COVER_MAX_ATR * c["atr"]) & (risk > 0) & (risk <= c["close"] * max_stop_pct / 100)
+
+    cover_label = f"Entrada coberta: zona logo atrás e stop atrás dela (até {max_stop_pct:g}%)"
+
+    setups = [
+        Setup("compra_suporte", BUY, "COMPRA NO SUPORTE", "SUPORTE", "level",
+              "Preço testou um suporte principal (mensal/semanal/diário) e foi rejeitado para cima.",
+              [Condition("Tocou um suporte principal (mensal, semanal ou diário)", feat["sup_touch"]),
+               Condition("Fechou acima da zona (suporte segurou)", feat["sup_reject"]),
+               Condition("Candle comprador (fechou acima da abertura)", c["close"] > c["open"]),
+               Condition(cover_label, covered(feat["sup_high"], stops["compra_suporte"], True)),
+               Condition("Próxima resistência a pelo menos 1 risco de distância",
+                         room(stops["compra_suporte"], feat["next_res"], True))],
+              min_score=-101, stop_price=stops["compra_suporte"]),
+        Setup("venda_resistencia", SELL, "VENDA NA RESISTÊNCIA", "RESIST", "level",
+              "Preço testou uma resistência principal (mensal/semanal/diário) e foi rejeitado para baixo.",
+              [Condition("Tocou uma resistência principal (mensal, semanal ou diário)", feat["res_touch"]),
+               Condition("Fechou abaixo da zona (resistência segurou)", feat["res_reject"]),
+               Condition("Candle vendedor (fechou abaixo da abertura)", c["close"] < c["open"]),
+               Condition(cover_label, covered(feat["res_low"], stops["venda_resistencia"], False)),
+               Condition("Próximo suporte a pelo menos 1 risco de distância",
+                         room(stops["venda_resistencia"], feat["next_sup"], False))],
+              min_score=-101, stop_price=stops["venda_resistencia"]),
+        Setup("compra_rompimento", BUY, "ROMPIMENTO DE RESISTÊNCIA", "ROMPEU", "level",
+              "Candle de força fechou acima de uma resistência principal: a zona passa a ser suporte.",
+              [Condition("Fechou acima de uma resistência principal", feat["break_up"]),
+               Condition("Candle de força (corpo ≥ 50% do candle, fechou em alta)", body_strong & (c["close"] > c["open"])),
+               Condition(cover_label, covered(feat["bup_high"], stops["compra_rompimento"], True)),
+               Condition("Próxima resistência a pelo menos 1 risco de distância",
+                         room(stops["compra_rompimento"], feat["next_res"], True))],
+              min_score=-101, stop_price=stops["compra_rompimento"]),
+        Setup("venda_rompimento", SELL, "ROMPIMENTO DE SUPORTE", "ROMPEU", "level",
+              "Candle de força fechou abaixo de um suporte principal: a zona passa a ser resistência.",
+              [Condition("Fechou abaixo de um suporte principal", feat["break_down"]),
+               Condition("Candle de força (corpo ≥ 50% do candle, fechou em baixa)", body_strong & (c["close"] < c["open"])),
+               Condition(cover_label, covered(feat["bdn_low"], stops["venda_rompimento"], False)),
+               Condition("Próximo suporte a pelo menos 1 risco de distância",
+                         room(stops["venda_rompimento"], feat["next_sup"], False))],
+              min_score=-101, stop_price=stops["venda_rompimento"]),
+    ]
+    if session is not None:
+        for s in setups:
+            s.conditions.append(Condition(session_label or "Sessão líquida aberta",
+                                          session.reindex(df.index).fillna(False).astype(bool)))
     return setups
 
 

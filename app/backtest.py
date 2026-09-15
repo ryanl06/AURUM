@@ -31,6 +31,18 @@ def stop_distance(price: float, atr: float, atr_mult: float, max_stop_pct: float
     return float(min(by_atr, price * max_stop_pct / 100))
 
 
+MIN_STRUCTURAL_ATR = 0.5
+
+
+def structural_distance(entry: float, stop: float, atr: float, long: bool, max_stop_pct: float) -> float | None:
+    """Distância até um stop estrutural (além da zona): no mínimo 0,5 ATR e no máximo o stop máximo em %."""
+    raw = (entry - stop) if long else (stop - entry)
+    if raw <= 0 or raw > entry * max_stop_pct / 100:
+        return None  # abriu além do stop, ou o stop não cabe atrás da zona: entrada deixa de ser coberta
+    floor = MIN_STRUCTURAL_ATR * atr if atr and np.isfinite(atr) else 0.0
+    return float(min(max(raw, floor), entry * max_stop_pct / 100))
+
+
 def simulate_trades(
     df: pd.DataFrame,
     setup: Setup,
@@ -48,12 +60,18 @@ def simulate_trades(
     atrs = df["atr"].to_numpy(float)
     n = len(df)
     long = setup.side == BUY
+    structural = setup.stop_price.to_numpy(float) if setup.stop_price is not None else None
     trades = []
     for i in np.flatnonzero(fired):
         if i + 2 >= n:
             continue  # disparo recente demais para avaliar
         entry = opens[i + 1]
-        dist = stop_distance(entry, atrs[i], atr_mult, max_stop_pct)
+        if structural is not None and np.isfinite(structural[i]):
+            dist = structural_distance(entry, structural[i], atrs[i], long, max_stop_pct)
+            if dist is None:
+                continue  # abriu além do stop da zona: o sinal já não vale
+        else:
+            dist = stop_distance(entry, atrs[i], atr_mult, max_stop_pct)
         if dist <= 0 or (gate is not None and not gate(setup, int(i), entry, dist)):
             continue
         stop = entry - dist if long else entry + dist

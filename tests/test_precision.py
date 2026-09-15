@@ -83,7 +83,7 @@ class RiskMathTests(unittest.TestCase):
         self.assertEqual(intraday["atr_mult"], 2.0)
         self.assertEqual(daily["atr_mult"], 1.5)
         self.assertAlmostEqual(intraday["cost"], 0.012)
-        self.assertAlmostEqual(daily["cost"], 0.15)
+        self.assertAlmostEqual(daily["cost"], 0.2)  # Binance: 0,1% na compra + 0,1% na venda
 
     def test_forex_pips_and_lots(self):
         cfg = {"atr_mult": 2.0, "max_stop": 3.0, "reward": 2.0, "capital": 10000, "risk_pct": 1}

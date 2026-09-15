@@ -7,6 +7,7 @@ import { browserNotify, flashScreen, playTone, requestNotifyPermission, toast, u
 import { LiveFeed } from "./live.js";
 import { renderError, renderLivePrice, renderLoading, renderMt5, renderPanel, setRealPrice, tickSignal, ticketText } from "./render.js";
 import { startTour } from "./tour.js";
+import { loadSmall, setupSmall, stopSmall } from "./small.js";
 import { setupTutorial } from "./tutorial.js";
 import { loadHistory, loadOperations, loadPerformance, renderRadar, renderWatchlist } from "./views.js";
 
@@ -26,7 +27,7 @@ const store = {
 
 const state = {
   symbol: store.get("symbol", "WDOFUT"),
-  tf: store.get("tf", "1h"),
+  tf: store.get("tf", "15m"),
   mode: store.get("mode", "pro"),
   sound: store.get("sound", true),
   notify: store.get("notify", false),
@@ -339,6 +340,8 @@ function switchTab(tab) {
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === tab));
   if (tab === "radar") { renderRadar(state.radar); loadRadar(); }
+  if (tab === "pequeno") loadSmall();
+  else stopSmall();
   if (tab === "historico") { $("alert-dot").hidden = true; refreshHistory(); }
   if (tab === "operacoes") refreshOperations();
   if (tab === "desempenho") refreshPerformance();
@@ -484,6 +487,12 @@ async function openSettings() {
   form.querySelectorAll(".tg-feedback").forEach((el) => el.remove());
   renderTelegramStatus(form);
   $("settings-modal").showModal();
+  api.mt4Status().then((m) => {
+    const el = $("mt4-status");
+    el.textContent = m.connected ? `CONECTADO · ${m.broker || "MT4"} · ${m.symbols.length} ativo(s)` : m.files ? "ROBÔ PARADO" : "NÃO INSTALADO";
+    el.classList.toggle("on", m.connected);
+    el.title = m.folder;
+  }).catch(() => {});
 }
 
 function renderTelegramStatus(form) {
@@ -768,6 +777,10 @@ async function boot() {
   bindEvents();
   setupSearch();
   setupTutorial();
+  setupSmall({
+    onOpen: (symbol, tf) => { selectAsset(symbol, tf); switchTab("painel"); },
+    onSettingsChanged: () => loadAnalysis(),  // o capital mudou: a boleta precisa ser recalculada
+  });
   if (!store.get("tutorialSeen", false)) {
     setTimeout(() => toast("Novo por aqui?", "Abra a aba Tutorial (no topo) e clique em “Fazer o tour guiado” para conhecer a tela em 2 minutos.", "info", 12000), 2500);
   }

@@ -152,7 +152,7 @@ def init() -> None:
         _initialized = True
 
 
-SETTINGS_VERSION = 4
+SETTINGS_VERSION = 5
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -164,6 +164,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET value = '1h' WHERE key = 'scan_timeframe' AND value = '15m'")
     if version < 4:  # o usuário optou por não usar o MetaTrader 5
         conn.execute("UPDATE settings SET value = '0' WHERE key = 'use_mt5'")
+    if version < 5:  # o usuário pediu entradas no M15 guiadas pelas zonas do mensal/semanal/diário
+        conn.execute("UPDATE settings SET value = '15m' WHERE key = 'scan_timeframe'")
     columns = {r[1] for r in conn.execute("PRAGMA table_info(positions)")}
     for column in ("result_r", "pnl_money"):
         if column not in columns:

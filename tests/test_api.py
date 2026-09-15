@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -39,6 +40,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(bare.post("/api/system/shutdown").status_code, 403)
         evil = TestClient(app, base_url="http://evil.example.com", headers={"X-AURUM": "1"})
         self.assertEqual(evil.get("/api/meta").status_code, 403)  # DNS rebinding
+
+    def test_scaling_plan_and_screener_endpoints(self):
+        plan = self.client.get("/api/scaling").json()
+        self.assertIn(plan["decision"], ("SUBIR", "MANTER", "DESCER"))
+        moved = self.client.post("/api/scaling/level", json={"level": 1}).json()
+        self.assertEqual(moved["level"], 1)
+        settings = self.client.get("/api/settings").json()
+        self.assertEqual((settings["capital"], settings["risk_per_trade_pct"]), ("50", "3"))
+        self.assertEqual(self.client.post("/api/scaling/level", json={"level": 99}).status_code, 422)
+        self.client.post("/api/scaling/level", json={"level": 0})
+        from app import main
+        with mock.patch.object(main.screener, "start", return_value=True) as start:
+            data = self.client.get("/api/screener", params={"refresh": True}).json()
+        start.assert_called_once()
+        self.assertIn("items", data)
+        self.assertEqual(self.client.put("/api/settings", json={"crypto_spot_only": "x"}).status_code, 422)
 
     def test_meta_and_static(self):
         meta = self.client.get("/api/meta").json()

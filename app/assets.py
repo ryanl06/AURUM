@@ -91,7 +91,7 @@ def resolve_symbol(text: str) -> str:
         return raw
     if raw in CRYPTO_BASES:
         return f"{raw}-USD"
-    if raw.endswith("USDT") and raw[:-4] in CRYPTO_BASES:
+    if raw.endswith("USDT") and len(raw) > 4 and raw[:-4].isalnum():  # par da Binance: PEPEUSDT
         return f"{raw[:-4]}-USD"
     if len(raw) == 6 and raw[:3] in FIAT and raw[3:] in FIAT:
         return f"{raw}=X"

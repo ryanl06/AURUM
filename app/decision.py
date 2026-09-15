@@ -302,9 +302,11 @@ def pip_size(symbol: str, kind: str) -> float | None:
     return None
 
 
-def trade_plan(price, atr, side, settings_num, decimals, symbol: str, kind: str) -> dict:
+def trade_plan(price, atr, side, settings_num, decimals, symbol: str, kind: str, dist: float | None = None) -> dict:
+    """`dist` = distância de um stop estrutural (atrás da zona); sem ela o stop sai do ATR."""
     atr_mult, max_stop, reward = settings_num["atr_mult"], settings_num["max_stop"], settings_num["reward"]
-    dist = stop_distance(price, atr, atr_mult, max_stop)
+    structural = dist is not None
+    dist = min(dist, price * max_stop / 100) if structural else stop_distance(price, atr, atr_mult, max_stop)
     long = side == BUY
     capital, risk_pct = settings_num["capital"], settings_num["risk_pct"]
     risk_amount = capital * risk_pct / 100
@@ -318,7 +320,7 @@ def trade_plan(price, atr, side, settings_num, decimals, symbol: str, kind: str)
         "entry": num(price, decimals),
         "stop": num(price - dist if long else price + dist, decimals),
         "stop_pct": num(dist / price * 100, 3),
-        "stop_by": "ATR" if dist < price * max_stop / 100 - 1e-12 else f"limite de {max_stop:g}%",
+        "stop_by": ("zona" if structural else "ATR") if dist < price * max_stop / 100 - 1e-12 else f"limite de {max_stop:g}%",
         "max_stop_pct": max_stop,
         "atr_mult": atr_mult,
         "target1": num(price + dist if long else price - dist, decimals),

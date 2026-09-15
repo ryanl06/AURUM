@@ -587,6 +587,54 @@ table { width: 100%; border-collapse: collapse; }
 .kpi span { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .1em; }
 .kpi b { display: block; font: 700 26px var(--mono); margin-top: 4px; }
 
+/* ---------------------------------------------------------------- começar pequeno */
+.scale-card { margin-bottom: 14px; }
+.scale-ladder { list-style: none; margin: 12px 0 16px; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.scale-ladder li { position: relative; padding: 8px 6px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line);
+  text-align: center; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.scale-ladder .lvl { font: 700 11px var(--mono); color: var(--text-3); }
+.scale-ladder .cap { font: 600 12px var(--mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scale-ladder li.done { border-color: rgba(22, 199, 132, .25); }
+.scale-ladder li.done .cap { color: var(--bull); }
+.scale-ladder li.current { background: var(--gold-soft); border-color: rgba(240, 185, 11, .5); box-shadow: 0 0 0 3px rgba(240, 185, 11, .08); }
+.scale-ladder li.current .lvl, .scale-ladder li.current .cap { color: var(--gold); }
+.scale-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 18px; align-items: start; }
+.scale-text { margin: 0 0 10px; font-weight: 600; }
+.scale-checks { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.scale-checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px;
+  padding: 7px 10px; border-radius: 9px; background: var(--surface-2); }
+.scale-checks i { font-style: normal; font-weight: 800; text-align: center; }
+.scale-checks li.ok i { color: var(--bull); }
+.scale-checks li.no i { color: var(--text-3); }
+.scale-checks li.warn { background: var(--bear-soft); color: var(--bear); grid-template-columns: 22px minmax(0, 1fr); }
+.scale-checks b { font: 600 12px var(--mono); color: var(--text-2); }
+.kpis.kpis-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 10px; }
+.kpis-3 .kpi b { font-size: 20px; }
+.scale-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.scale-actions .hint { flex-basis: 100%; margin: 2px 0 0; }
+.small-note { margin: 0 0 14px; }
+.screener-status { margin-bottom: 10px; }
+.screener-progress { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
+.screener-progress .bar, .scr-score .bar { height: 6px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.screener-progress .bar i, .scr-score .bar i { display: block; height: 100%; background: var(--gold); border-radius: 6px; transition: width .4s; }
+.scr-card { gap: 10px; }
+.scr-card.cat-operavel { border-color: rgba(22, 199, 132, .28); }
+.scr-card.cat-evitar { opacity: .78; }
+.scr-rank { color: var(--text-3); font-size: 12px; margin-right: 2px; }
+.radar-sym small { color: var(--text-3); font-weight: 500; font-size: 11px; }
+.scr-grade { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scr-score { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 110px; }
+.scr-score .bar { flex: 1; }
+.scr-score b { font: 700 15px var(--mono); }
+.scr-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; font-size: 11.5px; color: var(--text-3);
+  border-top: 1px solid var(--line); padding-top: 8px; }
+.scr-metrics b { display: block; color: var(--text-2); font: 600 12.5px var(--mono); }
+.scr-reasons { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-2); display: flex; flex-direction: column; gap: 3px; }
+@media (max-width: 1100px) {
+  .scale-body { grid-template-columns: minmax(0, 1fr); }
+  .scale-ladder { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 .guide { max-width: 1100px; }
 .lead { font-size: 16px; color: var(--text-2); max-width: 75ch; margin: 0 0 18px; }
 .guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }

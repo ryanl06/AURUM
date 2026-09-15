@@ -320,8 +320,16 @@ export class MarketChart {
     };
     if (this.layers.levels) {
       for (const lv of analysis.chart.levels || []) {
-        const color = lv.kind === "resistance" ? "rgba(240,69,79,0.45)" : "rgba(22,199,132,0.45)";
-        add(lv.price, color, `${lv.kind === "resistance" ? "R" : "S"} ${lv.strength}`, LWC.LineStyle.SparseDotted, false);
+        const res = lv.kind === "resistance";
+        if (lv.label) {  // zona do mensal/semanal/diário: faixa com as duas bordas e o nome no eixo
+          const edge = res ? "rgba(240,69,79,0.32)" : "rgba(22,199,132,0.32)";
+          add(lv.high, edge, "", LWC.LineStyle.SparseDotted, false);
+          add(lv.low, edge, "", LWC.LineStyle.SparseDotted, false);
+          add(lv.price, res ? "rgba(240,69,79,0.75)" : "rgba(22,199,132,0.75)", `${res ? "R" : "S"} ${lv.label}`, LWC.LineStyle.Dashed, true);
+          continue;
+        }
+        const color = res ? "rgba(240,69,79,0.45)" : "rgba(22,199,132,0.45)";
+        add(lv.price, color, `${res ? "R" : "S"} ${lv.strength}`, LWC.LineStyle.SparseDotted, false);
       }
     }
     if (!this.layers.plan) return;

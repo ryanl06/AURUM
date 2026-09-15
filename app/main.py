@@ -7,6 +7,7 @@ import io
 import logging
 import mimetypes
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -18,12 +19,13 @@ from pydantic import BaseModel, Field
 
 from datetime import datetime, timezone
 
-from . import __version__, assets, market_data, mt5_source, news
+from . import __version__, assets, market_data, mt4_source, mt5_source, news, scaling
 from . import database as db
 from .config import DEFAULT_SETTINGS, DEFAULT_TIMEFRAME, DISCLAIMER, FOREX_MAJORS, STATIC_DIR, TIMEFRAMES
 from .market_data import MarketDataError, get_candles, search_remote
 from .notifier import detect_chat, send_telegram
 from .scanner import scanner
+from .screener import screener
 from .service import radar, risk_state, run_analysis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -154,7 +156,7 @@ def analysis(symbol: str = Query(..., max_length=40), tf: str = DEFAULT_TIMEFRAM
 def live(symbol: str = Query(..., max_length=40), tf: str = DEFAULT_TIMEFRAME, bar_start: int | None = None):
     """Candle em formação (atualização a cada poucos segundos para o gráfico ao vivo)."""
     sym, timeframe = _symbol(symbol), _tf(tf)
-    market_data.USE_MT5 = db.get_settings().get("use_mt5", "0") == "1"
+    market_data.configure(db.get_settings())
     candle = market_data.live_candle(sym, timeframe, bar_start)
     pair = market_data.binance_pair(sym)
     stream = None
@@ -402,9 +404,15 @@ def put_settings(values: dict[str, str]):
             except ValueError:
                 raise HTTPException(422, f"Valor inválido para {key}.")
     for key in ("htf_filter", "session_filter", "quality_gate", "telegram_enabled", "telegram_only_signals", "use_mt5",
-                "news_guard", "risk_guard"):
+                "news_guard", "risk_guard", "crypto_spot_only", "use_mt4"):
         if key in clean and clean[key] not in ("0", "1"):
             raise HTTPException(422, f"Valor inválido para {key}.")
+    if "strategy_mode" in clean and clean["strategy_mode"] not in ("zonas", "indicadores", "ambos"):
+        raise HTTPException(422, "Estratégia inválida.")
+    if "mt4_suffix" in clean:
+        clean["mt4_suffix"] = clean["mt4_suffix"].strip()
+        if not re.fullmatch(r"[A-Za-z0-9._#-]{0,10}", clean["mt4_suffix"]):
+            raise HTTPException(422, "Sufixo do MT4 inválido (use só letras, números, ponto ou traço).")
     if "max_stop_pct" in clean and float(clean["max_stop_pct"]) > 3:
         raise HTTPException(422, "O stop loss máximo é 3% (regra obrigatória de proteção).")
     if "scan_timeframe" in clean:
@@ -450,6 +458,12 @@ def telegram_test(body: TelegramIn | None = None):
     return {"ok": ok, "detail": detail}
 
 
+@app.get("/api/mt4/status")
+def mt4_status():
+    enabled = db.get_settings().get("use_mt4", "0") == "1"
+    return {**mt4_source.status(), "enabled": enabled}
+
+
 @app.get("/api/mt5/status")
 def mt5_status():
     enabled = db.get_settings().get("use_mt5", "0") == "1"
@@ -464,6 +478,38 @@ def mt5_reconnect():
     market_data._cache.clear()  # próxima leitura já tenta a fonte nova
     scanner.trigger()
     return {**mt5_status(), "connecting": True}
+
+
+@app.get("/api/screener")
+def screener_view(refresh: bool = False):
+    """Ranking de moedas para capital pequeno. Recalcula em segundo plano quando está velho (6 h) ou a pedido."""
+    status = screener.status()
+    if (refresh or status["stale"]) and not status["running"]:
+        screener.start(db.get_settings())
+        status = screener.status()
+    return status
+
+
+class LevelIn(BaseModel):
+    level: int = Field(..., ge=0, le=len(scaling.LADDER) - 1)
+
+
+@app.get("/api/scaling")
+def scaling_view():
+    settings = db.get_settings()
+    try:
+        level = int(settings.get("scale_level") or 0)
+    except ValueError:
+        level = 0
+    return scaling.evaluate(level, settings.get("scale_since"), db.list_positions("closed", limit=2000),
+                            db.list_signals(limit=5000))
+
+
+@app.post("/api/scaling/level")
+def scaling_set_level(body: LevelIn):
+    db.update_settings(scaling.level_settings(body.level))
+    scanner.trigger()
+    return scaling_view()
 
 
 @app.get("/api/scanner")

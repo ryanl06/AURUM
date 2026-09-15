@@ -75,6 +75,7 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="painel">Painel</button>
         <button class="tab" data-tab="radar">Radar</button>
+        <button class="tab" data-tab="pequeno">Começar pequeno</button>
         <button class="tab" data-tab="historico">Histórico</button>
         <button class="tab" data-tab="operacoes">Operações</button>
         <button class="tab" data-tab="desempenho">Desempenho</button>
@@ -181,7 +182,7 @@
             <div class="plan-size" id="plan-size"></div>
             <div class="plan-pips" id="plan-pips" hidden></div>
             <div class="plan-levels" id="plan-levels"></div>
-            <p class="hint">Stop = ATR × <b id="plan-atr">2</b> (volatilidade), nunca maior que <b id="plan-max-stop">3</b>%. Ajuste capital e risco em ⚙.</p>
+            <p class="hint"><span id="plan-stop-rule">Stop = ATR × <b id="plan-atr">2</b> (volatilidade)</span><span id="plan-stop-zone" hidden>Stop <b>atrás da zona</b> que protege a entrada</span>, nunca maior que <b id="plan-max-stop">3</b>%. Zonas acima: mensal, semanal e diário. Ajuste capital e risco em ⚙.</p>
           </article>
         </div>
 
@@ -304,6 +305,43 @@
           </div>
         </div>
         <div class="radar-grid" id="radar-grid"></div>
+      </section>
+
+      <!-- ------------------------------------------------ COMEÇAR PEQUENO -->
+      <section class="view" data-view="pequeno">
+        <div class="view-head">
+          <div>
+            <h2 class="view-title">Começar pequeno na Binance</h2>
+            <p class="muted">Cripto na Spot a partir de R$ 50: um plano para subir o capital só com resultado medido, e as moedas onde as regras de compra do AURUM se saíram melhor depois das taxas.</p>
+          </div>
+          <div class="toolbar">
+            <span class="chip" id="small-capital">Capital —</span>
+            <button class="btn btn-ghost" id="btn-screener-refresh">Atualizar ranking</button>
+          </div>
+        </div>
+
+        <article class="card scale-card" id="scale-card">
+          <header class="card-head"><h2>Plano de escalada</h2><span class="chip" id="scale-decision">—</span></header>
+          <ol class="scale-ladder" id="scale-ladder"></ol>
+          <div class="scale-body">
+            <div>
+              <p class="scale-text" id="scale-text"></p>
+              <ul class="scale-checks" id="scale-checks"></ul>
+              <p class="hint" id="scale-source"></p>
+            </div>
+            <div class="scale-side">
+              <div class="kpis kpis-3" id="scale-kpis"></div>
+              <div class="scale-actions" id="scale-actions"></div>
+            </div>
+          </div>
+        </article>
+
+        <div class="tut-callout gold small-note">
+          <b>Como ler:</b> isto não é recomendação de investimento. Cada moeda passa pelo mesmo motor do painel, só com regras de <b>COMPRA</b> (na Spot você não vende o que não tem), nos gráficos de 1h e diário. A nota vem do resultado <b>fora da amostra</b>, com taxa de 0,1% na entrada e na saída. <b>Pode operar</b> = regras ganharam no período recente com amostra suficiente; <b>Observar</b> = perto do empate ou poucos sinais; <b>Evitar</b> = perderam dinheiro.
+        </div>
+
+        <div class="screener-status" id="screener-status"></div>
+        <div class="radar-grid screener-grid" id="screener-grid"></div>
       </section>
 
       <!-- ------------------------------------------------ HISTÓRICO -->
@@ -493,6 +531,48 @@
               </div>
             </article>
 
+            <article class="tut-step card" data-step="zonas" id="passo-zonas">
+              <header><span class="tut-num">▤</span><h3>Estratégia: zonas do mensal, semanal e diário com entrada no M15</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>O AURUM marca os <b>suportes e resistências principais</b> dos gráficos mensal, semanal e diário (linhas <code>S Mensal+Semanal</code> e <code>R Diário</code> no gráfico) e usa o <b>M15</b> para o momento da entrada.</p>
+                <div class="tut-grid">
+                  <div>
+                    <b>As 4 entradas</b>
+                    <ul>
+                      <li><b>Compra no suporte:</b> o candle de 15 min toca o suporte e fecha acima dele.</li>
+                      <li><b>Venda na resistência:</b> toca a resistência e fecha abaixo.</li>
+                      <li><b>Rompimento:</b> candle de força fecha além da zona.</li>
+                      <li><b>PREPARE-SE:</b> o preço chegou perto de uma zona — espere a reação no fechamento do candle.</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <b>Sempre coberto</b>
+                    <ul>
+                      <li>Só entra com uma zona principal logo atrás do preço.</li>
+                      <li>O <b>stop fica atrás da zona</b> (nunca mais que 3%).</li>
+                      <li>A próxima zona precisa estar a pelo menos 1 risco de distância.</li>
+                      <li>Zona longe demais ou atravessada com força = não entre.</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="tut-callout gold"><b>Resultado medido:</b> em 10 ativos, com custos, as zonas perderam menos que as regras antigas no M15, mas nenhuma estratégia ficou positiva depois dos custos. Olhe a <b>Confiabilidade</b> de cada ativo e a aba <b>Desempenho</b> antes de usar dinheiro real.</div>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="mt4" id="passo-mt4">
+              <header><span class="tut-num">MT4</span><h3>Usar os gráficos do MetaTrader 4 (Hantec ou outra corretora)</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>Com o robô <code>AURUM_Exporter</code> (pasta <code>mt4</code> do AURUM), os preços vêm da sua corretora em tempo real. Ele <b>só grava as velas em arquivo</b> — não abre nem fecha ordens.</p>
+                <ol>
+                  <li>No MT4: <b>Arquivo → Abrir pasta de dados → MQL4 → Experts</b>. Copie <code>AURUM_Exporter.mq4</code> para lá.</li>
+                  <li>No painel <b>Navegador</b> do MT4, clique com o botão direito em <b>Expert Advisors → Atualizar</b> (se não aparecer, abra no MetaEditor e clique em <b>Compilar</b>).</li>
+                  <li>Arraste <b>AURUM_Exporter</b> para um gráfico. Em <b>Entradas</b>, escreva os ativos como aparecem na corretora, ex.: <code>EURUSD,GBPUSD,XAUUSD</code>.</li>
+                  <li>No AURUM: ⚙ → <b>MetaTrader 4</b> → marque <b>Usar os gráficos do MT4</b>. O status deve mostrar <b>CONECTADO</b>.</li>
+                </ol>
+                <div class="tut-callout gold"><b>Antes de depositar:</b> a Hantec Markets informa no próprio site que não é autorizada pela CVM a atender residentes no Brasil. Forex com alavancagem pode perder mais que o depositado — comece em <b>conta demo</b>.</div>
+              </div>
+            </article>
+
             <article class="tut-step card" data-step="binance" id="passo-binance">
               <header><span class="tut-num">₿</span><h3>Operando cripto pela Binance</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
               <div class="tut-body">
@@ -573,7 +653,7 @@
                 </ul>
                 <p>O scanner analisa cada ativo <b>logo depois que o candle fecha</b>, então o alerta chega no início da janela de entrada.</p>
                 <b>☁️ Alertas com o PC desligado</b>
-                <p>Uma cópia do AURUM pode rodar de hora em hora nos servidores do GitHub (grátis) e avisar no Telegram só quando aparece <b>ENTRAR AGORA</b> ou <b>SAIR AGORA</b>. Todo dia, depois das 8h, chega um resumo “AURUM nuvem ativo”.</p>
+                <p>Uma cópia do AURUM pode rodar a cada candle de 15 min (07h–16h45; no resto do dia de hora em hora) nos servidores do GitHub (grátis) e avisar no Telegram só quando aparece <b>ENTRAR AGORA</b> ou <b>SAIR AGORA</b>. Todo dia, depois das 8h, chega um resumo “AURUM nuvem ativo”.</p>
                 <ol>
                   <li>Crie um repositório <b>privado</b> no <a href="https://github.com/new" target="_blank" rel="noopener">GitHub</a> e envie a pasta do AURUM (a pasta <code>data/</code> com o seu token não vai junto).</li>
                   <li>No repositório: <b>Settings → Secrets and variables → Actions</b>. Crie <code>TELEGRAM_TOKEN</code> e <code>TELEGRAM_CHAT_ID</code> (os mesmos de ⚙).</li>
@@ -742,6 +822,19 @@
         </label>
         <label>Tempo gráfico do scanner<select name="scan_timeframe" id="scan-tf-select"></select></label>
         <label>Alerta se o preço mudar (%)<input name="price_move_alert_pct" type="number" step="0.1" min="0"></label>
+        <label>Estratégia de entrada
+          <select name="strategy_mode">
+            <option value="zonas">Zonas do mensal, semanal e diário (entrada coberta)</option>
+            <option value="ambos">Zonas + regras de indicadores</option>
+            <option value="indicadores">Só regras de indicadores</option>
+          </select>
+        </label>
+      </div>
+      <h3 class="form-section">MetaTrader 4 (Hantec ou outra corretora) <span class="tg-status" id="mt4-status"></span></h3>
+      <p class="hint">Instale o robô <code>mt4/AURUM_Exporter.mq4</code> no seu MT4 (passo a passo na aba Tutorial). Ele só grava as velas em arquivo — não envia ordens — e o AURUM passa a usar os preços da sua corretora.</p>
+      <div class="form-grid">
+        <label class="check"><input type="checkbox" name="use_mt4"><span><b>Usar os gráficos do MT4</b> quando o robô estiver ativo</span></label>
+        <label>Sufixo dos ativos na corretora <small>(ex.: .r — deixe vazio se for EURUSD)</small><input name="mt4_suffix" type="text" maxlength="10" autocomplete="off"></label>
       </div>
       <h3 class="form-section">Risco</h3>
       <div class="form-grid">
@@ -768,6 +861,7 @@
         <label class="check"><input type="checkbox" name="htf_filter"><span><b>Tempo maior a favor</b> — regras de tendência só disparam com o gráfico maior na mesma direção</span></label>
         <label class="check"><input type="checkbox" name="session_filter"><span><b>Sessão Londres/NY</b> — forex e ouro intraday só das 04h às 14h de Brasília</span></label>
         <label class="check"><input type="checkbox" name="quality_gate"><span><b>Bloquear regras ruins</b> — não mandar ENTRAR com regra que perdeu dinheiro no histórico do ativo</span></label>
+        <label class="check"><input type="checkbox" name="crypto_spot_only"><span><b>Cripto só na compra (Spot)</b> — sem sinais de venda em cripto, porque na Spot só se vende a moeda que já está na carteira</span></label>
       </div>
       <h3 class="form-section">Alertas no Telegram <span class="tg-status" id="tg-status"></span></h3>
       <ol class="tg-steps">

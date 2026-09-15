@@ -1,13 +1,16 @@
 # AURUM na nuvem: analisa os ativos de cloud_config.json e avisa no Telegram, com o PC desligado.
 # Só lê dados de mercado e manda mensagens — não acessa corretora nem executa ordens.
-# Horários em UTC (Brasília = UTC-3). Repositório privado tem 2.000 min/mês grátis; este agendamento
-# usa cerca de 650 execuções de ~1 a 2 min por mês.
+# Horários em UTC (Brasília = UTC-3). Entradas no M15: roda 4 min depois do fechamento de cada candle de 15 min
+# no horário mais líquido. ~1.300 execuções/mês: grátis sem limite em repositório público; em repositório
+# privado (2.000 min/mês) pode passar da cota — nesse caso o GitHub só pausa as execuções até o mês seguinte.
+# O GitHub pode atrasar execuções agendadas alguns minutos nos horários de pico.
 name: AURUM nuvem
 
 on:
   schedule:
-    - cron: "4 * * * 1-5"    # segunda a sexta, de hora em hora (4 min após o fechamento do candle de 1h)
-    - cron: "4 */2 * * 0,6"  # sábado e domingo, a cada 2 horas (cripto não para)
+    - cron: "4,19,34,49 10-19 * * 1-5"  # seg–sex 07h–16h45 de Brasília: a cada candle de 15 min
+    - cron: "4 0-9,20-23 * * 1-5"       # seg–sex fora desse horário: de hora em hora
+    - cron: "4 */2 * * 0,6"             # sábado e domingo, a cada 2 horas (cripto não para)
   workflow_dispatch:         # botão "Run workflow" para testar na hora
 
 permissions:

@@ -12,6 +12,7 @@ from datetime import date
 from . import b3
 from .explain import fmt_price
 
+FEE_RATE = 0.001  # Binance Spot: 0,1% por ordem (sem desconto de BNB)
 BDR = {"AAPL": "AAPL34", "NVDA": "NVDC34", "TSLA": "TSLA34", "MSFT": "MSFT34", "AMZN": "AMZO34", "GOOGL": "GOGL34"}
 STEPS = [
     "Confira se o sinal ainda está dentro da janela de entrada e se há saldo/garantia disponível na XP.",
@@ -69,13 +70,27 @@ def _binance_ticket(plan: dict, signal: dict, position: dict | None, info: dict,
         quantity = 0.0
     quantity = round(quantity, qty_decimals)
     notional = quantity * entry
-    if not position and (quantity < info["min_qty"] or notional < info["min_notional"]):
+    # Na compra a Binance desconta a taxa (0,1%) da própria moeda: a OCO precisa de um pouco menos, senão dá
+    # "saldo insuficiente".
+    oco_quantity = round(math.floor(quantity * (1 - FEE_RATE) / step + 1e-9) * step, qty_decimals) if long else quantity
+    fees = notional * FEE_RATE * 2  # 0,1% na entrada + 0,1% na saída (taxa padrão)
+    min_notional = info["min_notional"]
+    if not position and (quantity < info["min_qty"] or notional < min_notional):
         warnings.append(f"A quantidade calculada ({quantity:g} {info['base']}) fica abaixo do mínimo da Binance "
-                        f"(ordem de pelo menos US$ {fmt_price(info['min_notional'], 2)}). Aumente o capital ou não opere.")
+                        f"(ordem de pelo menos US$ {fmt_price(min_notional, 2)}). Aumente o capital ou não opere.")
+    elif not position and min(stop_limit, target2) * oco_quantity < min_notional:
+        warnings.append(f"A proteção OCO ficaria abaixo do mínimo da Binance (US$ {fmt_price(min_notional, 2)} por "
+                        "ordem) e seria recusada. Use um pouco mais de capital antes de entrar.")
+    if not position and quantity > 0 and budget / risk_per_coin > quantity * 1.01 and capital_usd > 0:
+        real_risk = quantity * risk_per_coin / capital_usd * 100
+        warnings.append(f"Com esse capital a ordem usa quase todo o saldo: se bater o stop a perda é "
+                        f"~{fmt_price(real_risk, 1)}% do capital (US$ {fmt_price(quantity * risk_per_coin, 2)}).")
+    if not position and quantity > 0 and fees >= quantity * risk_per_coin * 0.25:
+        warnings.append(f"As taxas (~US$ {fmt_price(fees, 2)}) comem {fees / (quantity * risk_per_coin) * 100:.0f}% do "
+                        "risco desta operação — stop curto demais para o custo. Prefira o gráfico de 1h ou diário.")
     if not long and not position:
         warnings.insert(0, "Sinal de VENDA: na Binance Spot você só vende a moeda que já tem. Se não tem, não opere — "
                            "e evite Futuros/alavancagem, onde a perda pode passar do valor investido.")
-    fees = notional * 0.002  # 0,1% na entrada + 0,1% na saída (taxa padrão)
 
     validity = "GTC (até cancelar)"
     base, quote = info["base"], info["quote"]
@@ -97,15 +112,20 @@ def _binance_ticket(plan: dict, signal: dict, position: dict | None, info: dict,
             {"title": "Ordem 2 · Proteção OCO (logo depois de executar)", "fields": [
                 {"label": "Operação", "value": "VENDER" if long else "COMPRAR"}, {"label": "Tipo", "value": "OCO"},
                 {"label": "Take Profit · preço", "key": "target2"}, {"label": "Stop Loss · gatilho", "key": "stop"},
-                {"label": "Stop Loss · limite", "key": "stop_limit"}, {"label": f"Quantidade ({base})", "key": "quantity"},
-            ], "note": "A OCO coloca alvo e stop juntos: quando um executa, o outro é cancelado sozinho."},
+                {"label": "Stop Loss · limite", "key": "stop_limit"},
+                {"label": f"Quantidade ({base})", "key": "oco_quantity"},
+            ], "note": "A OCO coloca alvo e stop juntos: quando um executa, o outro é cancelado sozinho."
+                       + (" A quantidade é um pouco menor que a da compra porque a Binance desconta a taxa de 0,1% "
+                          "da moeda recebida." if long and oco_quantity < quantity else "")},
         ]
     ticket = {
         "available": True, "mode": "exit" if exiting else "entry", "exchange": "Binance",
         "code": f"{base}{quote}", "name": f"{base}/{quote} · Binance Spot", "kind": "crypto",
         "side": side, "action": "Zerar a posição" if exiting else "Abrir posição",
         "order_type": "A mercado" if signal.get("action") in ("ENTRAR_AGORA", "SAIR_AGORA") else "Aguarde a confirmação do sinal",
-        "quantity": quantity, "qty_decimals": qty_decimals, "unit": base, "lot_note": None,
+        "quantity": quantity, "oco_quantity": oco_quantity, "qty_decimals": qty_decimals, "unit": base, "lot_note": None,
+        "min_notional": min_notional,
+        "min_capital_brl": round(min_notional * 1.1 / (1 - FEE_RATE) * brl_per_usd, 2) if brl_per_usd else None,
         "tick": tick, "point_value": 1.0, "currency": quote, "currency_symbol": "US$",
         "entry": entry, "stop": stop, "stop_limit": stop_limit, "target1": target1, "target2": target2,
         "stop_points": round(risk_per_coin, decimals), "target_points": round(abs(target2 - entry), decimals),
@@ -125,7 +145,8 @@ def _binance_ticket(plan: dict, signal: dict, position: dict | None, info: dict,
         f"Par: {base}/{quote}",
         f"Operação: {side} {quantity:.{qty_decimals}f} {base} (~US$ {fmt_price(notional, 2)})",
         f"Entrada: limite {fmt_price(entry, decimals)}" + (f" · {ticket['window']}" if ticket["window"] else ""),
-        f"OCO · Take Profit: {fmt_price(target2, decimals)} · Stop: gatilho {fmt_price(stop, decimals)} / limite {fmt_price(stop_limit, decimals)}",
+        f"OCO ({'VENDER' if long else 'COMPRAR'} {oco_quantity:.{qty_decimals}f} {base}) · Take Profit: "
+        f"{fmt_price(target2, decimals)} · Stop: gatilho {fmt_price(stop, decimals)} / limite {fmt_price(stop_limit, decimals)}",
         f"Risco: US$ {fmt_price(ticket['risk_money'], 2)} · Alvo: +US$ {fmt_price(ticket['reward_money'], 2)} · Taxas estimadas: US$ {fmt_price(fees, 2)}",
     ]
     lines += [f"Atenção: {w}" for w in warnings]

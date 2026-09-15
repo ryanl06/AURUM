@@ -16,7 +16,7 @@ import httpx
 import pandas as pd
 import yfinance as yf
 
-from . import b3, mt5_source
+from . import b3, mt4_source, mt5_source
 from .assets import classify
 from .config import TIMEFRAMES, Timeframe
 
@@ -26,12 +26,22 @@ BINANCE_URLS = ("https://data-api.binance.vision/api/v3/klines", "https://api.bi
 SOURCE_BINANCE = "Binance (tempo real)"
 SOURCE_YAHOO = "Yahoo Finance"
 USE_MT5 = False  # ajustado pelas configurações (service.py); desligado por padrão
+USE_MT4 = False  # idem: velas exportadas pelo MetaTrader 4 (mt4/AURUM_Exporter.mq4)
+MT4_SUFFIX = ""  # sufixo dos ativos na corretora (ex.: ".r")
 LOCK_TIMEOUT = 25  # segundos esperando outra busca do mesmo ativo antes de desistir
 YAHOO_TIMEOUT = 20
 
 
 class MarketDataError(RuntimeError):
     pass
+
+
+def configure(settings: dict) -> None:
+    """Liga/desliga as fontes opcionais (MetaTrader 4/5) conforme as configurações."""
+    global USE_MT5, USE_MT4, MT4_SUFFIX
+    USE_MT5 = settings.get("use_mt5", "0") == "1"
+    USE_MT4 = settings.get("use_mt4", "0") == "1"
+    MT4_SUFFIX = (settings.get("mt4_suffix") or "").strip()
 
 
 @dataclass
@@ -83,7 +93,11 @@ def _fetch_locked(symbol: str, timeframe: str, tf: Timeframe, key: tuple[str, st
         return cached
 
     df, source = None, SOURCE_YAHOO
-    if USE_MT5 and mt5_source.installed():
+    if USE_MT4:  # arquivos do robô AURUM_Exporter no MetaTrader 4 (ex.: Hantec)
+        got = mt4_source.fetch(symbol, timeframe, MT4_SUFFIX)
+        if got is not None and len(got[0]) >= 60:
+            df, source = got
+    if df is None and USE_MT5 and mt5_source.installed():
         try:
             got = mt5_source.fetch(symbol, timeframe, tf.binance_bars)
             if got is not None and len(got[0]) >= 60:
@@ -287,7 +301,10 @@ def recent_minutes(symbol: str) -> tuple[pd.DataFrame, str]:
         if cached and time.time() - cached[0] < LIVE_TTL:
             return cached[1], cached[2]
         df, source = None, SOURCE_YAHOO
-        if USE_MT5 and mt5_source.installed():
+        got = mt4_source.fetch(symbol, "1m", MT4_SUFFIX) if USE_MT4 else None
+        if got is not None:
+            df, source = got
+        elif USE_MT5 and mt5_source.installed():
             got = mt5_source.fetch(symbol, "1m", 600)
             if got is not None:
                 df, source = got

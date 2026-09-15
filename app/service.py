@@ -18,6 +18,7 @@ from .assets import asset_info
 from .config import LOCAL_TZ, TIMEFRAMES
 from .market_data import MarketDataError, get_candles, lookup_name
 from .notifier import notify_alert
+from .pipeline import context_snaps, exchange_for
 
 log = logging.getLogger(__name__)
 
@@ -30,32 +31,25 @@ _CACHE_SECONDS = 5
 def run_analysis(symbol: str, timeframe: str, *, force: bool = False, record: bool = False,
                  source: str = "painel") -> dict:
     settings = db.get_settings()
-    market_data.USE_MT5 = settings.get("use_mt5", "0") == "1"
+    market_data.configure(settings)
     snap = get_candles(symbol, timeframe, force=force)
     if snap.name is None and asset_info(symbol)["name"] == symbol:
         snap.name = lookup_name(symbol)
-    htf_snap = None
-    higher = TIMEFRAMES[timeframe].higher
-    if higher:
-        try:
-            htf_snap = get_candles(symbol, higher)
-        except MarketDataError as exc:
-            log.info("Tempo maior %s indisponível para %s: %s", higher, symbol, exc)
+    htf_snap, daily_snap = context_snaps(symbol, timeframe)
     position = db.open_position_for(symbol)
     guard = risk_state(settings)
     events = news.load()
 
-    key = (symbol, timeframe, snap.fetched_at, htf_snap and htf_snap.fetched_at, position and position["id"],
-           tuple(sorted(settings.items())), guard["blocked"], guard["trades_today"], len(events))
+    key = (symbol, timeframe, snap.fetched_at, htf_snap and htf_snap.fetched_at, daily_snap and daily_snap.fetched_at,
+           position and position["id"], tuple(sorted(settings.items())), guard["blocked"], guard["trades_today"],
+           len(events))
     cached = _cache.get(key)
     if cached and time.time() - cached[0] < _CACHE_SECONDS and not record:
         result = cached[1]
     else:
-        exchange = None
-        pair = market_data.binance_pair(symbol)
-        if pair:  # cripto: boleta com as regras reais do par na Binance e capital convertido para USDT
-            exchange = {"binance": market_data.binance_filters(pair), "brl_per_usd": market_data.usd_brl()}
-        result = analyze(snap, settings, position, htf_snap=htf_snap, risk=guard, events=events, exchange=exchange)
+        # Cripto: boleta com as regras reais do par na Binance e capital convertido para USDT.
+        result = analyze(snap, settings, position, htf_snap=htf_snap, risk=guard, events=events,
+                         exchange=exchange_for(symbol), daily_snap=daily_snap)
         _cache[key] = (time.time(), result)
         _prune_cache()
 

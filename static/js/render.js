@@ -111,6 +111,7 @@ function xpValue(t, field) {
   if (field.value !== undefined) return field.value;
   if (field.key === "code") return t.code;
   if (field.key === "quantity") return isCrypto(t) ? fmtNum(t.quantity, t.qty_decimals) : fmtNum(t.quantity, 0);
+  if (field.key === "oco_quantity") return fmtNum(t.oco_quantity, t.qty_decimals);
   return fmtPrice(t[field.key], t.decimals);
 }
 
@@ -400,6 +401,8 @@ function renderPlan(a) {
     <div class="mini-stat" title="Quanto você perde se o stop for atingido"><span>Risco</span><b class="down">${fmtNum(p.risk_amount)}</b></div>`;
   $("plan-max-stop").textContent = fmtNum(p.max_stop_pct, 1);
   $("plan-atr").textContent = fmtNum(p.atr_mult, 1);
+  $("plan-stop-rule").hidden = p.stop_by === "zona";
+  $("plan-stop-zone").hidden = p.stop_by !== "zona";
 
   const pips = p.pips;
   $("plan-pips").hidden = !pips;
@@ -412,8 +415,14 @@ function renderPlan(a) {
   }
 
   const lv = a.context?.levels;
+  const zn = a.context?.zones;
   const rowsLv = [];
-  if (lv) {
+  if (zn && (zn.supports.length || zn.resistances.length)) {
+    const zoneRow = (z, cls, tag) => `<div class="level-row ${cls}" title="Zona ${fmtPrice(z.low, d)} – ${fmtPrice(z.high, d)} · peso ${z.weight}">
+      <span class="tag">${tag}</span><span class="mono">${fmtPrice(z.mid, d)}</span><span>${esc(z.label)} · ${fmtPct(z.distance_pct)}</span></div>`;
+    for (const r of zn.resistances.slice(0, 3).reverse()) rowsLv.push(zoneRow(r, "res", "RESISTÊNCIA"));
+    for (const s of zn.supports.slice(0, 3)) rowsLv.push(zoneRow(s, "sup", "SUPORTE"));
+  } else if (lv) {
     for (const r of lv.resistances.slice(0, 2).reverse()) {
       rowsLv.push(`<div class="level-row res"><span class="tag">RESISTÊNCIA</span><span class="mono">${fmtPrice(r.price, d)}</span><span>${esc(r.strength)} · ${fmtPct(r.distance_pct)}</span></div>`);
     }

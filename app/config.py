@@ -49,7 +49,8 @@ CHART_CANDLES = 400
 # Regras de risco padrão (podem ser alteradas nas configurações).
 DEFAULT_SETTINGS: dict[str, str] = {
     "scan_interval_min": "5",
-    "scan_timeframe": "1h",  # no histórico de forex o 1h foi o tempo gráfico mais confiável
+    "scan_timeframe": "15m",  # entradas no M15, guiadas pelas zonas do mensal/semanal/diário
+    "strategy_mode": "zonas",  # zonas = suportes/resistências M/S/D · indicadores = regras antigas · ambos
     "max_stop_pct": "3",  # stop loss obrigatório: nunca mais que 3% do preço de entrada
     "atr_stop_mult": "auto",  # auto = 2,0 no intraday e 1,5 no diário (validado no histórico)
     "reward_ratio": "2",
@@ -57,7 +58,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "htf_filter": "1",  # exige o tempo gráfico maior a favor nas regras de tendência
     "session_filter": "1",  # forex/ouro intraday: só sessões de Londres e Nova York
     "quality_gate": "1",  # bloqueia regras que perderam dinheiro no histórico do ativo
+    "crypto_spot_only": "1",  # cripto na Spot: só sinais de COMPRA (vender exige ter a moeda na carteira)
     "use_mt5": "0",  # opcional e desligado: ler cotações do MetaTrader 5 aberto no PC
+    "use_mt4": "0",  # opcional: ler as velas exportadas pelo robô AURUM_Exporter no MetaTrader 4 (ex.: Hantec)
+    "mt4_suffix": "",  # sufixo dos ativos na corretora, se houver (ex.: ".r" em EURUSD.r)
     "news_guard": "1",  # não manda ENTRAR de 30 min antes a 30 min depois de notícia de alto impacto
     "risk_guard": "1",  # pausa as entradas quando algum limite diário é atingido
     "max_trades_day": "3",
@@ -70,11 +74,13 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "telegram_token": "",
     "telegram_chat_id": "",
     "telegram_only_signals": "0",  # 1 = só ENTRAR AGORA e SAIR AGORA
+    "scale_level": "0",  # plano de escalada: 0 = treino sem dinheiro, 1 = R$ 50, 2 = R$ 100…
+    "scale_since": "",  # quando o nível atual começou (ISO); as regras de subir/descer contam a partir daqui
 }
 
 DEFAULT_FAVORITES = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "USDBRL=X", "BTC-USD", "PETR4.SA"]
 
 # Custo típico ida+volta em % do preço (spread + corretagem), usado no backtest quando cost_pct = auto.
-DEFAULT_COST_PCT = {"forex": 0.012, "futures": 0.03, "crypto": 0.15, "b3": 0.06, "b3fut": 0.015, "us": 0.03, "index": 0.05}
+DEFAULT_COST_PCT = {"forex": 0.012, "futures": 0.03, "crypto": 0.2, "b3": 0.06, "b3fut": 0.015, "us": 0.03, "index": 0.05}
 
 FOREX_MAJORS = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X", "USDCHF=X", "NZDUSD=X", "GC=F"]

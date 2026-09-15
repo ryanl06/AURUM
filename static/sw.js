@@ -2,11 +2,11 @@
 // Estratégia "rede primeiro": com o servidor ligado sempre carrega a versão nova; sem servidor usa a cópia salva
 // e o painel mostra a tela "O AURUM está desligado". Chamadas /api/ nunca são guardadas.
 
-const CACHE = "aurum-shell-v2";
+const CACHE = "aurum-shell-v3";
 const SHELL = [
   "/", "/index.html", "/css/styles.css", "/manifest.webmanifest",
   "/js/app.js", "/js/api.js", "/js/chart.js", "/js/format.js", "/js/live.js", "/js/notify.js", "/js/render.js",
-  "/js/tour.js", "/js/tutorial.js", "/js/views.js", "/icons/aurum-192.png", "/icons/aurum-512.png",
+  "/js/small.js", "/js/tour.js", "/js/tutorial.js", "/js/views.js", "/icons/aurum-192.png", "/icons/aurum-512.png",
 ];
 
 self.addEventListener("install", (event) => {
