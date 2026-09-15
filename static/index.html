@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AURUM · Analisador de Mercado</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2 30 16 16 30 2 16Z' fill='%23F0B90B'/><path d='M16 9 23 16 16 23 9 16Z' fill='%230B0E14'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b0e14">
+  <link rel="apple-touch-icon" href="icons/aurum-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"
+          integrity="sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN" crossorigin="anonymous"></script>
+</head>
+<body data-mode="pro">
+  <div class="app">
+    <!-- ============================================================ TOPO -->
+    <header class="topbar">
+      <a class="brand" href="#" data-action="home" aria-label="AURUM — início">
+        <svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true"><path d="M16 2 30 16 16 30 2 16Z"/><path d="M16 9 23 16 16 23 9 16Z" class="brand-hole"/></svg>
+        <span class="brand-name">AURUM</span>
+        <span class="brand-sub">analisador de mercado</span>
+      </a>
+
+      <div class="search" role="search">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search-input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Digite o ativo: PETR4, BTC, EURUSD, XAUUSD…" aria-label="Buscar ativo">
+        <kbd class="search-kbd">/</kbd>
+        <div id="search-results" class="search-results" hidden></div>
+      </div>
+
+      <div class="segmented" id="tf-switch" role="tablist" aria-label="Tempo gráfico"></div>
+
+      <div class="topbar-actions">
+        <div class="segmented segmented-sm" id="mode-switch" role="tablist" aria-label="Modo de exibição">
+          <button data-mode="simple">Simples</button>
+          <button data-mode="pro">Pro</button>
+        </div>
+        <button class="icon-btn" id="btn-sound" title="Som dos alertas" aria-label="Som dos alertas">
+          <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path class="sound-wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-notify" title="Notificações do navegador" aria-label="Notificações">
+          <svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+          <span class="badge-dot" id="alert-dot" hidden></span>
+        </button>
+        <button class="icon-btn" id="btn-settings" title="Configurações" aria-label="Configurações">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        </button>
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <!-- ============================================================ LATERAL -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <span class="eyebrow">Favoritos</span>
+        <button class="link-btn" data-tab-go="radar">Radar →</button>
+      </div>
+      <ul class="watchlist" id="watchlist">
+        <li class="watch-skeleton"></li><li class="watch-skeleton"></li><li class="watch-skeleton"></li>
+      </ul>
+      <div class="scanner-box" id="scanner-box">
+        <div class="scanner-line"><span class="pulse"></span><span>Análise contínua ativa</span></div>
+        <div class="scanner-meta" id="scanner-meta">Iniciando…</div>
+        <button class="btn btn-ghost btn-xs" id="btn-scan-now">Analisar favoritos agora</button>
+      </div>
+    </aside>
+
+    <!-- ============================================================ PRINCIPAL -->
+    <main class="main">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="painel">Painel</button>
+        <button class="tab" data-tab="radar">Radar</button>
+        <button class="tab" data-tab="historico">Histórico</button>
+        <button class="tab" data-tab="operacoes">Operações</button>
+        <button class="tab" data-tab="desempenho">Desempenho</button>
+        <button class="tab" data-tab="guia">Regras</button>
+        <button class="tab tab-tutorial" data-tab="tutorial">Tutorial</button>
+        <span class="tabs-spacer"></span>
+        <span class="updated" id="updated-label">Aguardando dados…</span>
+      </nav>
+
+      <!-- ------------------------------------------------ PAINEL -->
+      <section class="view active" data-view="painel">
+        <div id="load-error" class="error-banner" hidden></div>
+
+        <div class="asset-head" id="asset-head">
+          <div class="asset-id">
+            <button class="star" id="btn-fav" title="Adicionar aos favoritos" aria-label="Favoritar">
+              <svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>
+            </button>
+            <div>
+              <div class="asset-now">Agora monitorando</div>
+              <h1 class="asset-name" id="asset-name">—</h1>
+              <div class="asset-meta">
+                <span class="chip mono" id="asset-symbol">—</span>
+                <span class="chip" id="asset-kind">—</span>
+                <span class="chip market" id="market-status"><i></i><span>—</span></span>
+                <span class="chip" id="data-source" title="De onde vêm os preços">—</span>
+              </div>
+            </div>
+          </div>
+          <div class="asset-price">
+            <div class="price mono" id="price">—</div>
+            <div class="price-sub">
+              <span class="change mono" id="change">—</span>
+              <span class="trend-pill" id="trend-pill">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="risk-strip" id="risk-strip" data-tour="risk"></div>
+
+        <div class="grid grid-top">
+          <!-- SINAL -->
+          <article class="card signal-card" id="signal-card" data-tone="wait">
+            <div class="signal-glow"></div>
+            <div class="signal-main">
+              <div class="signal-top">
+                <span class="eyebrow">Sinal agora</span>
+                <span class="signal-setup" id="signal-setup"></span>
+              </div>
+              <div class="signal-title" id="signal-title">CARREGANDO</div>
+              <div class="signal-headline" id="signal-headline">Buscando dados do mercado…</div>
+              <div class="context-chips" id="context-chips"></div>
+              <p class="signal-explain" id="signal-explain"></p>
+              <ul class="signal-warnings" id="signal-warnings" hidden></ul>
+
+              <div class="signal-moment">
+                <span>É o momento certo de operar?</span>
+                <strong class="moment-pill" id="moment-pill">—</strong>
+              </div>
+
+              <div class="signal-timing">
+                <div class="timing-block">
+                  <span class="timing-label">Janela</span>
+                  <span class="timing-value" id="signal-window">—</span>
+                </div>
+                <div class="timing-block">
+                  <span class="timing-label">Candle fecha em</span>
+                  <span class="timing-value mono" id="candle-countdown">--:--</span>
+                </div>
+                <div class="timing-block">
+                  <span class="timing-label">Horizonte</span>
+                  <span class="timing-value" id="signal-horizon">—</span>
+                </div>
+              </div>
+              <div class="candle-progress"><span id="candle-progress"></span></div>
+            </div>
+            <div class="signal-side">
+              <div class="ring" id="confidence-ring">
+                <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-fill" cx="60" cy="60" r="52"/></svg>
+                <div class="ring-center">
+                  <span class="ring-value mono" id="confidence-value">—</span>
+                  <span class="ring-label" id="confidence-label">confiança</span>
+                </div>
+              </div>
+              <div class="ring-caption" id="confidence-caption"></div>
+              <div class="pressure">
+                <div class="pressure-labels"><span>Compradores</span><span>Vendedores</span></div>
+                <div class="pressure-bar"><span id="pressure-buy"></span></div>
+                <div class="pressure-values mono"><span id="pressure-buy-v">—</span><span id="pressure-sell-v">—</span></div>
+              </div>
+              <div class="signal-buttons">
+                <button class="btn btn-gold" id="btn-open-position">Já entrei nesta operação</button>
+              </div>
+            </div>
+          </article>
+
+          <!-- PLANO -->
+          <article class="card plan-card">
+            <header class="card-head">
+              <h2>Plano da operação</h2>
+              <span class="chip" id="plan-side">—</span>
+            </header>
+            <div class="plan-ladder" id="plan-ladder"></div>
+            <div class="plan-size" id="plan-size"></div>
+            <div class="plan-pips" id="plan-pips" hidden></div>
+            <div class="plan-levels" id="plan-levels"></div>
+            <p class="hint">Stop = ATR × <b id="plan-atr">2</b> (volatilidade), nunca maior que <b id="plan-max-stop">3</b>%. Ajuste capital e risco em ⚙.</p>
+          </article>
+        </div>
+
+        <div class="grid grid-xp">
+          <article class="card ticket-card" id="ticket-card">
+            <header class="card-head">
+              <h2><span id="ticket-title">Ordem para a XP</span> <span class="chip" id="ticket-mode">—</span></h2>
+              <button class="btn btn-gold btn-xs" id="btn-copy-ticket">Copiar ordem</button>
+            </header>
+            <div id="ticket-body"><p class="muted">Carregando…</p></div>
+          </article>
+          <article class="card xp-card">
+            <header class="card-head"><h2>Conexão com a XP</h2><span class="chip" id="mt5-chip">—</span></header>
+            <div id="mt5-body" class="xp-body"></div>
+          </article>
+        </div>
+
+        <div class="grid grid-chart">
+          <article class="card chart-card" id="chart-card">
+            <header class="card-head">
+              <h2>Gráfico <span class="muted" id="chart-tf"></span> <span class="live-badge" id="live-status" title="Situação da atualização ao vivo"><i></i><span>conectando…</span></span></h2>
+              <div class="chart-tools">
+                <div class="segmented segmented-sm" id="chart-style" role="tablist" aria-label="Estilo do gráfico">
+                  <button data-style="candles" class="active">Candles</button>
+                  <button data-style="ha" title="Heikin-Ashi: suaviza o ruído e deixa a tendência mais visível">Heikin-Ashi</button>
+                  <button data-style="line">Linha</button>
+                </div>
+                <button class="icon-btn" id="btn-chart-fullscreen" title="Tela cheia (F)" aria-label="Tela cheia">
+                  <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+                </button>
+              </div>
+              <div class="chart-toggles" id="chart-toggles">
+                <label><input type="checkbox" data-layer="ema" checked><span>Médias</span></label>
+                <label><input type="checkbox" data-layer="bb" checked><span>Bollinger</span></label>
+                <label><input type="checkbox" data-layer="vwap" checked><span>VWAP</span></label>
+                <label><input type="checkbox" data-layer="levels" checked><span>Níveis</span></label>
+                <label><input type="checkbox" data-layer="projection" checked><span>Projeção</span></label>
+                <label><input type="checkbox" data-layer="markers" checked><span>Sinais</span></label>
+                <label><input type="checkbox" data-layer="plan" checked><span>Plano</span></label>
+              </div>
+            </header>
+            <div class="chart-legend mono" id="chart-legend"></div>
+            <div class="chart" id="chart"></div>
+            <div class="chart-foot">
+              <span><i class="lg lg-ema9"></i>MME9</span><span><i class="lg lg-ema21"></i>MME21</span>
+              <span><i class="lg lg-bb"></i>Bollinger</span><span><i class="lg lg-vwap"></i>VWAP</span>
+              <span><i class="lg lg-sr"></i>Suporte/resistência</span><span><i class="lg lg-proj"></i>Faixa provável (80%)</span><span>▲ compra · ▼ venda (sinais históricos)</span>
+              <span class="pane-note">Painéis inferiores: RSI e MACD</span>
+            </div>
+          </article>
+
+          <article class="card forecast-card">
+            <header class="card-head"><h2>Previsão</h2><span class="chip" id="score-chip">força —</span></header>
+            <div class="forecast-headline" id="forecast-headline">—</div>
+            <div class="score-meter"><div class="score-track"><span class="score-thumb" id="score-thumb"></span></div>
+              <div class="score-scale"><span>−100 baixa</span><span>0</span><span>alta +100</span></div></div>
+            <div class="consensus" id="forecast-consensus" hidden></div>
+            <div class="probability" id="forecast-probability" hidden></div>
+            <div class="analog" id="forecast-analog" hidden></div>
+            <ul class="reads" id="forecast-reads"></ul>
+            <div class="etas-block">
+              <div class="eyebrow">Antes do momento exato</div>
+              <ul class="etas" id="forecast-etas"></ul>
+            </div>
+            <div class="news-block" data-tour="news">
+              <div class="eyebrow">Agenda econômica <span class="muted" id="news-currencies"></span></div>
+              <ul class="news-list" id="news-list"></ul>
+            </div>
+            <div class="position-mini" id="position-mini" hidden></div>
+          </article>
+        </div>
+
+        <div class="grid grid-detail pro-only">
+          <article class="card setups-card">
+            <header class="card-head">
+              <h2>Regras de entrada</h2>
+              <span class="muted small">condições no candle atual · confirmação no fechamento</span>
+            </header>
+            <div class="setups" id="setups"></div>
+          </article>
+
+          <article class="card indicators-card">
+            <header class="card-head"><h2>Indicadores explicados</h2></header>
+            <div class="indicators" id="indicators"></div>
+          </article>
+        </div>
+
+        <div class="grid grid-bottom pro-only">
+          <article class="card hours-card">
+            <header class="card-head"><h2>Melhores horários</h2><span class="muted small" id="hours-unit"></span></header>
+            <div class="hours-best" id="hours-best"></div>
+            <div class="hours" id="hours"></div>
+            <p class="hint">Barra alta = o ativo costuma se mexer mais nesse horário. Movimento é oportunidade <em>e</em> risco.</p>
+          </article>
+
+          <article class="card backtest-card">
+            <header class="card-head"><h2>Como essas regras se saíram</h2><span class="muted small" id="bt-period"></span></header>
+            <div class="bt-stats" id="bt-stats"></div>
+            <div class="bt-oos" id="bt-oos"></div>
+            <div class="table-wrap"><table class="bt-table" id="bt-table"></table></div>
+            <p class="hint" id="bt-hint"></p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ RADAR -->
+      <section class="view" data-view="radar">
+        <div class="view-head">
+          <div>
+            <h2 class="view-title">Radar de oportunidades</h2>
+            <p class="muted">Todos os favoritos analisados no mesmo tempo gráfico. Os sinais mais fortes aparecem primeiro.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-ghost" id="btn-b3-pack" title="Mini dólar e mini índice (negociados na XP)">+ WDO e WIN</button>
+            <button class="btn btn-ghost" id="btn-forex-pack" title="EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD e ouro">+ Principais pares forex</button>
+            <form class="inline-form" id="fav-form">
+              <input id="fav-input" type="text" placeholder="Adicionar ativo (ex.: EURJPY)" autocomplete="off">
+              <button class="btn btn-gold" type="submit">Adicionar</button>
+            </form>
+          </div>
+        </div>
+        <div class="radar-grid" id="radar-grid"></div>
+      </section>
+
+      <!-- ------------------------------------------------ HISTÓRICO -->
+      <section class="view" data-view="historico">
+        <div class="view-head">
+          <div>
+            <h2 class="view-title">Histórico de análises</h2>
+            <p class="muted">Tudo que o scanner analisou fica salvo. Consulte como estava o sinal horas atrás.</p>
+          </div>
+          <div class="toolbar">
+            <label class="check"><input type="checkbox" id="hist-current" checked><span>Só o ativo atual</span></label>
+            <label class="check"><input type="checkbox" id="hist-signals"><span>Só sinais</span></label>
+            <a class="btn btn-ghost" id="hist-report" target="_blank" rel="noopener">Relatório (texto)</a>
+            <a class="btn btn-ghost" id="hist-csv">Exportar CSV</a>
+          </div>
+        </div>
+        <div class="split">
+          <div class="card table-card">
+            <div class="table-wrap"><table class="data-table" id="history-table"></table></div>
+          </div>
+          <div class="card alerts-card">
+            <header class="card-head"><h2>Alertas</h2></header>
+            <ul class="alert-list" id="alert-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ OPERAÇÕES -->
+      <section class="view" data-view="operacoes">
+        <div class="view-head">
+          <div>
+            <h2 class="view-title">Minhas operações</h2>
+            <p class="muted">Registre quando entrar. O AURUM acompanha o stop loss e avisa a hora de sair.</p>
+          </div>
+        </div>
+        <div class="kpis" id="ops-kpis"></div>
+        <div class="card table-card">
+          <header class="card-head"><h2>Abertas</h2></header>
+          <div class="table-wrap"><table class="data-table" id="ops-open"></table></div>
+        </div>
+        <div class="card table-card">
+          <header class="card-head"><h2>Encerradas</h2></header>
+          <div class="table-wrap"><table class="data-table" id="ops-closed"></table></div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ DESEMPENHO -->
+      <section class="view" data-view="desempenho">
+        <div class="view-head">
+          <div>
+            <h2 class="view-title">Desempenho real dos sinais</h2>
+            <p class="muted">Cada <b>ENTRAR AGORA</b> emitido é gravado com entrada, stop e alvo, e conferido nos candles seguintes. Não é backtest: é o que aconteceu de verdade depois do aviso.</p>
+          </div>
+          <label class="check"><input type="checkbox" id="perf-current"><span>Só o ativo atual</span></label>
+        </div>
+        <div class="kpis" id="perf-kpis"></div>
+        <div class="split">
+          <div class="card table-card">
+            <header class="card-head"><h2>Sinais emitidos</h2></header>
+            <div class="table-wrap"><table class="data-table" id="perf-table"></table></div>
+          </div>
+          <div class="card">
+            <header class="card-head"><h2>Por ativo e tempo gráfico</h2></header>
+            <div class="table-wrap"><table class="data-table" id="perf-assets"></table></div>
+            <p class="hint">Resultado em R: +2R = bateu o alvo 2 (ganhou 2x o risco) · −1R = bateu o stop. Sinais sem alvo nem stop em 20 candles são encerrados pelo preço de fechamento.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ TUTORIAL -->
+      <section class="view" data-view="tutorial">
+        <div class="tutorial">
+          <div class="tut-hero card">
+            <div>
+              <span class="eyebrow">Tutorial</span>
+              <h2 class="view-title">Como usar o AURUM do jeito certo</h2>
+              <p class="lead">Siga os passos na ordem. Marque cada um quando concluir — o progresso fica salvo neste navegador.</p>
+              <button class="btn btn-gold" id="btn-start-tour">▶ Fazer o tour guiado pela tela (2 min)</button>
+            </div>
+            <div class="tut-progress">
+              <div class="ring ring-sm" id="tut-ring">
+                <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-fill" cx="60" cy="60" r="52"/></svg>
+                <div class="ring-center"><span class="ring-value mono" id="tut-pct">0%</span><span class="ring-label">concluído</span></div>
+              </div>
+            </div>
+          </div>
+
+          <nav class="tut-nav" id="tut-nav"></nav>
+          <div class="tut-steps" id="tut-steps">
+
+            <article class="tut-step card" data-step="1" id="passo-1">
+              <header><span class="tut-num">1</span><h3>Abra o AURUM e deixe rodando</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>O AURUM abre no navegador em <code>http://localhost:8765</code>, mas o motor de análise roda no seu computador.</p>
+                <ul>
+                  <li><b>Recomendado:</b> rode uma vez o <code>ATIVAR_INICIO_AUTOMATICO.bat</code>. O AURUM liga sozinho (sem janela) sempre que você entrar no Windows — aí é só abrir o navegador.</li>
+                  <li>Ou dê dois cliques em <code>INICIAR_AURUM.bat</code> quando quiser usar.</li>
+                  <li>No Chrome/Edge, use <b>Instalar AURUM</b> (ícone na barra de endereço) para ter um atalho que abre como app.</li>
+                  <li>Para desligar: <code>PARAR_AURUM.bat</code>. Para tirar da inicialização: <code>DESATIVAR_INICIO_AUTOMATICO.bat</code>.</li>
+                  <li>Alertas no Telegram e análise contínua funcionam enquanto o computador estiver ligado.</li>
+                </ul>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="2" id="passo-2">
+              <header><span class="tut-num">2</span><h3>Escolha o ativo e o tempo gráfico</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>Digite na busca do topo (ou aperte <kbd>/</kbd>): <code>EURUSD</code>, <code>GBPUSD</code>, <code>USDJPY</code>, <code>XAUUSD</code>, <code>BTC</code>, <code>PETR4</code>… e aperte Enter.</p>
+                <p>Escolha o tempo gráfico nos botões <b>1m 5m 15m 1h 1D</b> (atalhos <kbd>1</kbd>–<kbd>5</kbd>).</p>
+                <div class="tut-callout gold"><b>Recomendação medida no histórico:</b> em forex, o <b>1h</b> foi o tempo gráfico mais confiável. 5m e 15m perderam dinheiro depois dos custos na maioria dos pares. Confira sempre o selo de <b>Confiabilidade</b> no card do sinal.</div>
+                <p>No <b>Radar</b>, use <b>+ WDO e WIN</b> (negociados na XP) ou <b>+ Principais pares forex</b> para monitorar vários ativos de uma vez.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="3" id="passo-3">
+              <header><span class="tut-num">3</span><h3>Leia o card do sinal</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <div class="tut-grid">
+                  <div>
+                    <ul class="state-list">
+                      <li><span class="state s-buy">ENTRAR AGORA</span> Regra confirmada no fechamento do candle. Entre até o horário da <b>Janela</b>.</li>
+                      <li><span class="state s-prepare">PREPARE-SE</span> Sinal se formando. Deixe a plataforma da corretora aberta e espere a confirmação.</li>
+                      <li><span class="state s-wait">AGUARDE</span> Nada bom agora — inclusive quando a regra foi <b>bloqueada</b> pelo histórico.</li>
+                      <li><span class="state s-exit">SAIR AGORA</span> Com operação registrada: stop, alvo, stop móvel ou tendência virou.</li>
+                      <li><span class="state s-hold">MANTENHA</span> Com operação registrada e nenhum motivo para sair.</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <ul>
+                      <li><b>Confiança</b> (anel): chance histórica de o alvo vir antes do stop, ajustada pelo tamanho da amostra. Compare com o <b>empate</b> mostrado embaixo (com alvo 2x, empata perto de 33%).</li>
+                      <li><b>Confiabilidade</b>: como as regras ativas se saíram no período mais recente, fora da amostra. <b>BAIXA</b> = prefira não operar esse ativo nesse tempo gráfico.</li>
+                      <li><b>Tempo maior</b>: tendência do gráfico acima (ex.: 1h mostra o diário). Regras de tendência só disparam a favor dele.</li>
+                      <li><b>Sessão</b> (forex): Londres/Nova York, das 04h às 14h de Brasília. Fora dela os sinais de forex ficam desligados.</li>
+                      <li><b>Avisos em amarelo</b>: leia sempre antes de entrar.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="4" id="passo-4">
+              <header><span class="tut-num">4</span><h3>Monte a ordem com o plano</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>No card <b>Plano da operação</b> estão entrada, <b>stop</b>, <b>alvo 1</b> e <b>alvo 2</b>. Em forex aparecem também os <b>pips</b> e o tamanho em <b>lotes</b> para arriscar só o percentual definido em ⚙.</p>
+                <ol>
+                  <li>No XP Unity (ou na plataforma da sua corretora), abra a ordem no lado indicado (<b>COMPRA ↑</b> ou <b>VENDA ↓</b>).</li>
+                  <li>Coloque o <b>stop loss</b> exatamente no preço do plano. Sem stop, não entre.</li>
+                  <li>Coloque o take profit no <b>alvo 2</b>, ou realize metade no <b>alvo 1</b> se houver resistência/suporte no caminho (o app avisa).</li>
+                  <li>Use o tamanho sugerido. Nunca aumente a mão para "recuperar" uma perda.</li>
+                </ol>
+                <div class="tut-callout">Capital, risco por operação (padrão 1%) e alvo são ajustados em <b>⚙ Configurações</b>.</div>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="xp" id="passo-xp">
+              <header><span class="tut-num">XP</span><h3>Operando pela XP Investimentos</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>A XP negocia os ativos da B3. Para quem quer operar <b>dólar</b>, o caminho na XP é o <b>mini dólar (WDO)</b>; para o índice, o <b>mini índice (WIN)</b>. Digite <code>WDO</code> ou <code>WIN</code> na busca.</p>
+                <div class="tut-grid">
+                  <div>
+                    <b>Contratos</b>
+                    <ul>
+                      <li><b>WDO</b>: 1 ponto = R$ 10 por contrato · variação mínima 0,5 ponto.</li>
+                      <li><b>WIN</b>: 1 ponto = R$ 0,20 por contrato · variação mínima 5 pontos.</li>
+                      <li>O AURUM calcula o <b>código do vencimento</b> (ex.: WDOV26) e avisa quando está perto de vencer.</li>
+                      <li>A margem exigida por contrato é definida pela XP — confira antes na plataforma.</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <b>Card “Ordem para a XP”</b>
+                    <ul>
+                      <li>Traz lado, quantidade de contratos pelo seu risco, stop (disparo e limite) e alvos já arredondados ao tick.</li>
+                      <li><b>Copiar ordem</b> copia tudo em texto para conferir enquanto preenche a boleta.</li>
+                      <li>Envie a entrada e, na sequência, o stop e o alvo (ou uma ordem com stop e alvo juntos, se a plataforma oferecer).</li>
+                    </ul>
+                  </div>
+                </div>
+                <b>Enviando a ordem no XP Unity (sem MetaTrader)</b>
+                <ol>
+                  <li>Abra o <a href="https://www.xpi.com.br/home-broker/" target="_blank" rel="noopener">XP Unity</a> (home broker da XP) e deixe o ativo aberto: use o código do vencimento mostrado na boleta (ex.: <b>WDOV26</b>).</li>
+                  <li>Quando o AURUM mostrar <b>ENTRAR AGORA</b>, digite no campo <b>“Preço agora no XP Unity”</b> o último preço da XP. Entrada, stop e alvos se ajustam mantendo as distâncias do plano.</li>
+                  <li>Clique em <b>Copiar ordem</b> e preencha a boleta: lado, quantidade, ordem stop (disparo e limite) e alvo.</li>
+                  <li>Registre em <b>Já entrei nesta operação</b> para o AURUM acompanhar a saída.</li>
+                </ol>
+                <div class="tut-callout gold"><b>Sobre a precisão dos preços:</b> sem uma plataforma de dados em tempo real, o WDO usa o dólar à vista × 1000, o WIN usa o Ibovespa e as ações da B3 chegam com ~15 min de atraso. A direção e o horário do sinal continuam valendo; o preço exato é sempre o da XP — por isso existe o campo de ajuste. Para intraday, prefira 15m ou 1h.</div>
+                <p class="small muted">Opcional: quem quiser cotações em tempo real pode ligar o MetaTrader 5 em ⚙ Configurações (a XP oferece o MT5 na área logada, em Ferramentas e Serviços). Não é necessário para usar o AURUM.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="binance" id="passo-binance">
+              <header><span class="tut-num">₿</span><h3>Operando cripto pela Binance</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>Digite <code>BTC</code>, <code>ETH</code> ou <code>SOL</code>. Os preços vêm direto da Binance em tempo real e o card vira <b>Ordem para a Binance</b>, com o tick, o passo de quantidade e o valor mínimo do par.</p>
+                <ol>
+                  <li>No app ou site da Binance, abra <b>Trade → Spot</b> e o par da boleta (ex.: <b>BTC/USDT</b>).</li>
+                  <li>Quando o AURUM mostrar <b>ENTRAR AGORA</b>: <b>Ordem 1</b> — tipo <b>Limite</b>, preço e quantidade da boleta.</li>
+                  <li>Depois que a entrada executar: <b>Ordem 2</b> — tipo <b>OCO</b>, com Take Profit (alvo) e Stop Loss (gatilho e limite). Uma cancela a outra.</li>
+                  <li>Registre em <b>Já entrei nesta operação</b> para o AURUM acompanhar a saída.</li>
+                </ol>
+                <div class="tut-callout gold"><b>Importante:</b> na Spot você só <b>vende</b> a moeda que já tem. Sinal de venda sem a moeda na carteira = não opere. Evite Futuros e alavancagem: a perda pode passar do que você depositou. O capital em reais de ⚙ é convertido para USDT pelo dólar do dia.</div>
+                <p class="small muted">O AURUM nunca pede chave de API nem envia ordens — você confere e envia na Binance. Ative a verificação em duas etapas na sua conta.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="onde" id="passo-onde">
+              <header><span class="tut-num">★</span><h3>Onde operar com segurança junto com o AURUM</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <div class="tut-grid">
+                  <div>
+                    <b>Montagem recomendada (a mais integrada ao AURUM)</b>
+                    <ol>
+                      <li><b>Corretora regulada pela CVM</b> e participante da B3 — como a XP, que você já usa.</li>
+                      <li><b>XP Unity</b>, o home broker gratuito da XP, para enviar as ordens com a boleta que o AURUM monta.</li>
+                      <li><b>Ativos:</b> mini dólar (WDO) e mini índice (WIN) no intraday; ações da B3 no 1h/diário.</li>
+                      <li><b>AURUM</b> aberto para sinais, boleta, limites do dia e alertas no Telegram.</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <b>Regras de segurança</b>
+                    <ul>
+                      <li>Confira a corretora no site da CVM antes de depositar.</li>
+                      <li>Ative a verificação em duas etapas na conta.</li>
+                      <li>Comece treinando sem dinheiro; só leve para o real o que deu resultado na aba <b>Desempenho</b>.</li>
+                      <li>Nunca opere sem stop, nunca aumente a mão depois de perder.</li>
+                      <li>Evite "opções binárias", corretoras sem registro na CVM e promessas de lucro garantido.</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="tut-callout">O AURUM não recomenda investimentos nem executa ordens: ele organiza a análise e o risco para <b>você</b> decidir.</div>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="protecoes" id="passo-protecoes">
+              <header><span class="tut-num">🛡</span><h3>Proteções automáticas</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <ul>
+                  <li><b>Faixa “Hoje”</b> (acima do sinal): operações do dia, resultado em R e perdas seguidas contra os seus limites.</li>
+                  <li><b>PAUSA</b>: ao atingir um limite (padrão: 3 operações, −2R ou 2 perdas seguidas) o AURUM para de mandar entradas até o dia seguinte.</li>
+                  <li><b>Notícias</b>: a agenda econômica aparece no card Previsão. De 30 min antes a 30 min depois de uma notícia de alto impacto (juros do Fed, Payroll, inflação…) as entradas ficam em espera.</li>
+                  <li><b>Checklist</b>: para registrar uma entrada você confirma stop, tamanho e avisos.</li>
+                </ul>
+                <p>Tudo ajustável em ⚙ → <b>Gestão de risco do dia</b>. Eventos do Brasil (Copom, IPCA) não estão nesta agenda: confira-os por fora.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="5" id="passo-5">
+              <header><span class="tut-num">5</span><h3>Registre a entrada e deixe o AURUM avisar a saída</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>Clique em <b>Já entrei nesta operação</b>, confira preço, stop e alvo e registre. A partir daí o sinal vira <b>MANTENHA</b> ou <b>SAIR AGORA</b>, com:</p>
+                <ul>
+                  <li>stop loss e alvo atingidos;</li>
+                  <li><b>stop móvel</b> (acompanha o melhor preço a 2,5 ATR);</li>
+                  <li>preço esticado com lucro e virada de tendência;</li>
+                  <li>aviso para mover o stop para a entrada quando o lucro passar de 1x o risco.</li>
+                </ul>
+                <p>Quando sair na corretora, clique em <b>Encerrar minha operação</b>. O resultado vai para a aba <b>Operações</b>.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="6" id="passo-6">
+              <header><span class="tut-num">6</span><h3>Ligue os alertas (tela, som e Telegram)</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <ul>
+                  <li>🔔 no topo: notificações do navegador (funcionam com a aba em segundo plano).</li>
+                  <li>🔊 no topo: som diferente para compra, venda/saída e prepare-se.</li>
+                  <li>⚙ → <b>Alertas no Telegram</b>: crie o bot no @BotFather, cole o token, envie <code>/start</code> ao bot, clique em <b>Descobrir meu chat id</b>, teste e salve.</li>
+                </ul>
+                <p>O scanner analisa cada ativo <b>logo depois que o candle fecha</b>, então o alerta chega no início da janela de entrada.</p>
+                <b>☁️ Alertas com o PC desligado</b>
+                <p>Uma cópia do AURUM pode rodar de hora em hora nos servidores do GitHub (grátis) e avisar no Telegram só quando aparece <b>ENTRAR AGORA</b> ou <b>SAIR AGORA</b>. Todo dia, depois das 8h, chega um resumo “AURUM nuvem ativo”.</p>
+                <ol>
+                  <li>Crie um repositório <b>privado</b> no <a href="https://github.com/new" target="_blank" rel="noopener">GitHub</a> e envie a pasta do AURUM (a pasta <code>data/</code> com o seu token não vai junto).</li>
+                  <li>No repositório: <b>Settings → Secrets and variables → Actions</b>. Crie <code>TELEGRAM_TOKEN</code> e <code>TELEGRAM_CHAT_ID</code> (os mesmos de ⚙).</li>
+                  <li><b>Actions → AURUM nuvem → Run workflow</b> para testar. Os ativos monitorados ficam em <code>cloud_config.json</code>.</li>
+                </ol>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="7" id="passo-7">
+              <header><span class="tut-num">7</span><h3>Treine no simulador antes do dinheiro real</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <p>Treine no simulador da corretora ou só no papel por <b>pelo menos 30 sinais</b>, sem dinheiro. Registre tudo no AURUM e acompanhe a aba <b>Desempenho</b>.</p>
+                <div class="tut-callout gold">Só leve para conta real o ativo e tempo gráfico em que o <b>Desempenho real</b> e a <b>Confiabilidade</b> estiverem positivos. E comece com risco pequeno (0,5% a 1% por operação).</div>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="8" id="passo-8">
+              <header><span class="tut-num">8</span><h3>Rotina diária de 5 minutos</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <ol class="tut-checklist">
+                  <li>Antes da sessão (forex: 04h), abra o <b>Radar</b> e veja quais pares têm confiabilidade ALTA ou MÉDIA.</li>
+                  <li>Deixe favoritos e Telegram ligados. Não fique olhando o gráfico o tempo todo.</li>
+                  <li>Chegou <b>ENTRAR AGORA</b>: leia os avisos, confira o plano, entre com stop.</li>
+                  <li>Máximo de 2 ou 3 operações por dia e pare depois de 2 stops seguidos.</li>
+                  <li>No fim do dia, confira <b>Operações</b> e <b>Desempenho</b>.</li>
+                </ol>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="9" id="passo-9">
+              <header><span class="tut-num">9</span><h3>Perguntas frequentes e segurança</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body faq">
+                <details><summary>O AURUM acerta sempre?</summary><p>Não. Nenhuma ferramenta acerta sempre. O AURUM mostra números medidos (confiança, confiabilidade, desempenho real) para você operar só onde há vantagem estatística — e com stop.</p></details>
+                <details><summary>Por que o sinal diz AGUARDE se as condições estão todas verdes?</summary><p>Porque a regra pode estar <b>bloqueada</b> (perdeu no histórico desse ativo), a tendência já andou demais (entrada tardia) ou o candle ainda não fechou. Veja o texto do card.</p></details>
+                <details><summary>De onde vêm os preços?</summary><p>Cripto: Binance em tempo real. Forex, ouro, ações: Yahoo Finance (ações da B3 com atraso de ~15 min). A fonte aparece ao lado do nome do ativo.</p></details>
+                <details><summary>O AURUM executa ordens na minha corretora?</summary><p>Não. Ele analisa e avisa; a ordem é sempre sua, na plataforma da corretora.</p></details>
+                <details><summary>Onde operar com segurança?</summary><p>Prefira corretoras autorizadas pela CVM e participantes da B3 (confira no site da CVM). Para dólar, o caminho regulado no Brasil é o mini dólar (WDO) na B3. Evite "opções binárias" e promessas de lucro garantido.</p></details>
+                <details><summary>Posso mudar as regras?</summary><p>Em ⚙ você liga/desliga os filtros (tempo maior, sessão, bloqueio por histórico) e ajusta stop, alvo, custo e risco. O backtest e a confiança se recalculam na hora.</p></details>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ GUIA -->
+      <section class="view" data-view="guia">
+        <div class="guide">
+          <h2 class="view-title">Como o AURUM decide</h2>
+          <p class="lead">O app lê o gráfico como um trader faria: olha direção, força, exagero e volatilidade. Só manda <b>ENTRAR AGORA</b> quando várias leituras concordam — e sempre com stop loss.</p>
+
+          <div class="guide-grid">
+            <div class="guide-card">
+              <h3>Os 5 estados do sinal</h3>
+              <ul class="state-list">
+                <li><span class="state s-buy">ENTRAR AGORA</span> Regra confirmada no fechamento do candle. Entre até o fechamento do candle atual.</li>
+                <li><span class="state s-prepare">PREPARE-SE</span> O sinal está se formando ou deve disparar em poucos candles. O app mostra o horário estimado.</li>
+                <li><span class="state s-wait">AGUARDE</span> Nada alinhado, ou a tendência já andou demais (entrada tardia).</li>
+                <li><span class="state s-exit">SAIR AGORA</span> Com posição aberta: stop, alvo, preço esticado ou tendência virou.</li>
+                <li><span class="state s-hold">MANTENHA</span> Com posição aberta e nenhum motivo para sair.</li>
+              </ul>
+            </div>
+            <div class="guide-card">
+              <h3>Indicadores em uma linha</h3>
+              <dl class="glossary">
+                <dt>RSI</dt><dd>Termômetro de exagero. Abaixo de 30 = muito barato. Acima de 70 = muito caro.</dd>
+                <dt>MACD</dt><dd>Mostra se a força está subindo ou descendo. Cruzar a linha de sinal = virada.</dd>
+                <dt>MME9 / MME21</dt><dd>Médias do preço. A curta acima da longa = preço subindo.</dd>
+                <dt>Bollinger</dt><dd>Faixa “normal” do preço. Tocar a borda = preço esticado.</dd>
+                <dt>ATR</dt><dd>Quanto o preço costuma andar por candle. Define o tamanho do stop.</dd>
+                <dt>ADX</dt><dd>Força da tendência. Abaixo de 20 = mercado de lado.</dd>
+              </dl>
+            </div>
+            <div class="guide-card">
+              <h3>Regras de entrada</h3>
+              <ul class="rule-list">
+                <li><b>Compra forte:</b> MME9 &gt; MME21 + MACD positivo + RSI 30–70 + acima da MME50 + ADX ≥ 20 + <b>tempo maior em alta</b>.</li>
+                <li><b>Compra de recuperação:</b> RSI &lt; 30 + tocou banda inferior + MACD estabilizando + candle de reação.</li>
+                <li><b>Compra no momento:</b> MACD e médias cruzaram para cima há pouco + volume forte + RSI &gt; 50 + tempo maior não contra.</li>
+                <li>As regras de <b>venda</b> são o espelho: venda forte, venda de exaustão e venda no momento.</li>
+                <li><b>Forex e ouro intraday:</b> só na sessão de Londres/Nova York (04h–14h de Brasília).</li>
+              </ul>
+            </div>
+            <div class="guide-card">
+              <h3>Regras de saída</h3>
+              <ul class="rule-list">
+                <li><b>Stop loss obrigatório:</b> no máximo 3% contra você. Bateu, sai.</li>
+                <li><b>Sair para lucro:</b> RSI acima de 70 ou preço na banda superior.</li>
+                <li><b>Tendência inverteu:</b> MACD abaixo do sinal + MME9 abaixo da MME21.</li>
+                <li><b>Alvo:</b> 2x o risco. Lucro passou de 1x o risco? Suba o stop para a entrada.</li>
+                <li><b>Stop móvel:</b> acompanha o melhor preço a 2,5 ATR e protege o lucro.</li>
+              </ul>
+            </div>
+            <div class="guide-card">
+              <h3>“Antes do momento exato”</h3>
+              <p>O app mede a velocidade com que as médias e o MACD se aproximam e estima em quantos candles vão cruzar. Por isso ele consegue avisar <b>PREPARE-SE ~15:45</b> antes do sinal. É estimativa: a entrada só vale depois da confirmação.</p>
+            </div>
+            <div class="guide-card">
+              <h3>Backtest honesto</h3>
+              <p>As mesmas regras são testadas no histórico do ativo: entrada no candle seguinte, stop pelo ATR, alvo de 2x o risco e <b>custo de spread/corretagem descontado</b>. Com alvo 2x, acertar acima de ~34% já empata. <b>Fator de lucro acima de 1</b> = regra ganhou mais do que perdeu. Passado não garante futuro.</p>
+            </div>
+            <div class="guide-card">
+              <h3>Calibração fora da amostra</h3>
+              <p>O histórico é dividido em antigo (70%) e recente (30%). O filtro que bloqueia regras ruins é decidido só com o antigo e medido no recente — assim a <b>Confiabilidade</b> não é autoengano. Ao vivo, o bloqueio usa todo o histórico disponível.</p>
+            </div>
+            <div class="guide-card">
+              <h3>O que foi validado</h3>
+              <p>Testado em 11 pares de forex e ouro com até 2 anos de dados: exigir o tempo maior a favor, operar só na sessão Londres/NY e usar stop de 2 ATR no intraday melhoraram o resultado em todos os tempos gráficos. Suporte/resistência e divergências aparecem como leitura, mas <b>não</b> viraram filtro porque pioraram os números.</p>
+            </div>
+            <div class="guide-card">
+              <h3>Probabilidade calibrada</h3>
+              <p>Para cada faixa de força (−100 a +100) o app conta quantas vezes o preço subiu 3 candles depois, no próprio histórico do ativo. A previsão só afirma "provavelmente sobe/desce" quando esse histórico concorda com os indicadores.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="disclaimer" id="disclaimer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>
+      <span id="disclaimer-text">ISTO NÃO PREVÊ RESULTADOS. USE STOP LOSS. NÃO APOSTE O QUE NÃO PODE PERDER.</span>
+      <span class="disclaimer-sub">Não é recomendação de investimento. Dados do Yahoo Finance (ações da B3 podem ter atraso de ~15 min).</span>
+    </footer>
+  </div>
+
+  <!-- ============================================================ MODAIS -->
+  <dialog class="modal" id="position-modal">
+    <form method="dialog" class="modal-body" id="position-form">
+      <header class="modal-head"><h2>Registrar entrada</h2><button class="icon-btn" value="cancel" formnovalidate aria-label="Fechar">✕</button></header>
+      <p class="form-error" id="position-pause" hidden></p>
+      <p class="muted">A partir daqui o AURUM acompanha seu stop e avisa quando sair.</p>
+      <div class="side-toggle" id="pos-side">
+        <button type="button" data-side="COMPRA" class="active">COMPRA ↑</button>
+        <button type="button" data-side="VENDA">VENDA ↓</button>
+      </div>
+      <div class="form-grid">
+        <label>Preço de entrada<input name="entry_price" type="number" step="any" required></label>
+        <label>Quantidade<input name="quantity" type="number" step="any" min="0"></label>
+        <label>Stop loss<input name="stop_price" type="number" step="any"></label>
+        <label>Alvo<input name="target_price" type="number" step="any"></label>
+      </div>
+      <label class="full">Anotação<input name="notes" type="text" maxlength="500" placeholder="Opcional"></label>
+      <div class="checklist" id="pre-trade-checklist">
+        <div class="eyebrow">Checklist de segurança</div>
+        <label class="check"><input type="checkbox" required><span>Coloquei o <b>stop loss</b> na corretora no preço acima</span></label>
+        <label class="check"><input type="checkbox" required><span>A quantidade respeita o risco do plano (não aumentei a mão)</span></label>
+        <label class="check"><input type="checkbox" required><span>Li os avisos em amarelo e não há notícia forte agora</span></label>
+      </div>
+      <p class="form-error" id="position-error" hidden></p>
+      <footer class="modal-foot">
+        <button class="btn btn-ghost" value="cancel" formnovalidate>Cancelar</button>
+        <button class="btn btn-gold" id="position-submit" value="default">Registrar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="settings-modal">
+    <form method="dialog" class="modal-body" id="settings-form">
+      <header class="modal-head"><h2>Configurações</h2><button class="icon-btn" value="cancel" aria-label="Fechar">✕</button></header>
+      <h3 class="form-section">Análise contínua</h3>
+      <div class="form-grid">
+        <label>Analisar a cada
+          <select name="scan_interval_min">
+            <option value="1">1 minuto</option><option value="5">5 minutos</option>
+            <option value="15">15 minutos</option><option value="30">30 minutos</option><option value="60">1 hora</option>
+          </select>
+        </label>
+        <label>Tempo gráfico do scanner<select name="scan_timeframe" id="scan-tf-select"></select></label>
+        <label>Alerta se o preço mudar (%)<input name="price_move_alert_pct" type="number" step="0.1" min="0"></label>
+      </div>
+      <h3 class="form-section">Risco</h3>
+      <div class="form-grid">
+        <label>Capital disponível<input name="capital" type="number" step="any" min="0"></label>
+        <label>Risco por operação (%)<input name="risk_per_trade_pct" type="number" step="0.1" min="0" max="10"></label>
+        <label>Stop máximo (%, até 3)<input name="max_stop_pct" type="number" step="0.1" min="0.1" max="3"></label>
+        <label>Stop = ATR × <small>(auto = 2 intraday, 1,5 diário)</small><input name="atr_stop_mult" type="text" inputmode="decimal" placeholder="auto"></label>
+        <label>Alvo = risco ×<input name="reward_ratio" type="number" step="0.1" min="0.5"></label>
+        <label>Custo ida+volta (%) <small>(auto = por tipo de ativo)</small><input name="cost_pct" type="text" inputmode="decimal" placeholder="auto"></label>
+      </div>
+      <h3 class="form-section">Gestão de risco do dia</h3>
+      <div class="form-grid">
+        <label>Máximo de operações por dia<input name="max_trades_day" type="number" step="1" min="0"></label>
+        <label>Perda máxima do dia (em R) <small>2 = dois stops</small><input name="daily_max_loss_r" type="number" step="0.5" min="0"></label>
+        <label>Parar após perdas seguidas<input name="max_consecutive_losses" type="number" step="1" min="0"></label>
+      </div>
+      <div class="filter-list">
+        <label class="check"><input type="checkbox" name="risk_guard"><span><b>Pausar ao atingir um limite</b> — o sinal vira PAUSA até o dia seguinte (0 desliga cada limite)</span></label>
+        <label class="check"><input type="checkbox" name="news_guard"><span><b>Proteção de notícias</b> — não mandar ENTRAR de 30 min antes a 30 min depois de notícia de alto impacto</span></label>
+      </div>
+      <h3 class="form-section">Filtros validados no histórico</h3>
+      <div class="filter-list">
+        <label class="check"><input type="checkbox" name="use_mt5"><span><b>Usar MetaTrader 5</b> — se o MT5 da XP estiver aberto, os preços vêm dele em tempo real (WDO, WIN, ações)</span></label>
+        <label class="check"><input type="checkbox" name="htf_filter"><span><b>Tempo maior a favor</b> — regras de tendência só disparam com o gráfico maior na mesma direção</span></label>
+        <label class="check"><input type="checkbox" name="session_filter"><span><b>Sessão Londres/NY</b> — forex e ouro intraday só das 04h às 14h de Brasília</span></label>
+        <label class="check"><input type="checkbox" name="quality_gate"><span><b>Bloquear regras ruins</b> — não mandar ENTRAR com regra que perdeu dinheiro no histórico do ativo</span></label>
+      </div>
+      <h3 class="form-section">Alertas no Telegram <span class="tg-status" id="tg-status"></span></h3>
+      <ol class="tg-steps">
+        <li>No Telegram, abra <b>@BotFather</b>, envie <code>/newbot</code> e escolha um nome. Ele responde com um <b>token</b>.</li>
+        <li>Cole o token aqui:
+          <input name="telegram_token" type="password" autocomplete="off" placeholder="123456789:AAH…" class="tg-input"></li>
+        <li>Abra o seu bot no Telegram (link que o BotFather mandou) e envie <code>/start</code>.</li>
+        <li><button type="button" class="btn btn-ghost btn-xs" id="btn-telegram-detect">Descobrir meu chat id</button>
+          <input name="telegram_chat_id" type="text" autocomplete="off" placeholder="preenchido automaticamente" class="tg-input tg-chat"></li>
+        <li><button type="button" class="btn btn-ghost btn-xs" id="btn-telegram-test">Enviar mensagem de teste</button></li>
+      </ol>
+      <div class="form-grid">
+        <label class="check"><input type="checkbox" name="telegram_enabled"><span>Enviar alertas no Telegram</span></label>
+        <label class="check"><input type="checkbox" name="telegram_only_signals"><span>Só ENTRAR AGORA e SAIR AGORA</span></label>
+      </div>
+      <p class="hint">Marque “Enviar alertas” e clique em <b>Salvar</b>. Chegam os alertas dos favoritos e do ativo aberto no painel, com preço, janela de entrada, stop e alvos. O AURUM precisa estar rodando no computador.</p>
+      <p class="form-error" id="settings-error" hidden></p>
+      <footer class="modal-foot">
+        <button class="btn btn-ghost" value="cancel">Cancelar</button>
+        <button class="btn btn-gold" value="default">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <div class="offline" id="offline" hidden>
+    <div class="offline-card">
+      <svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true"><path d="M16 2 30 16 16 30 2 16Z"/><path d="M16 9 23 16 16 23 9 16Z" class="brand-hole"/></svg>
+      <h2>O AURUM está desligado</h2>
+      <p>O painel abre no navegador, mas o motor de análise roda no seu computador. Para ligar:</p>
+      <ol>
+        <li>Na pasta do AURUM, dê dois cliques em <b>INICIAR_AURUM.bat</b>.</li>
+        <li>Para nunca mais precisar disso, rode uma vez o <b>ATIVAR_INICIO_AUTOMATICO.bat</b>: o AURUM liga sozinho junto com o Windows e fica sempre disponível em <code>http://localhost:8765</code>.</li>
+      </ol>
+      <p class="offline-wait"><span class="pulse"></span> Tentando reconectar automaticamente…</p>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

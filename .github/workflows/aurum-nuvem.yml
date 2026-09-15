@@ -1,0 +1,56 @@
+# AURUM na nuvem: analisa os ativos de cloud_config.json e avisa no Telegram, com o PC desligado.
+# Só lê dados de mercado e manda mensagens — não acessa corretora nem executa ordens.
+# Horários em UTC (Brasília = UTC-3). Repositório privado tem 2.000 min/mês grátis; este agendamento
+# usa cerca de 650 execuções de ~1 a 2 min por mês.
+name: AURUM nuvem
+
+on:
+  schedule:
+    - cron: "4 * * * 1-5"    # segunda a sexta, de hora em hora (4 min após o fechamento do candle de 1h)
+    - cron: "4 */2 * * 0,6"  # sábado e domingo, a cada 2 horas (cripto não para)
+  workflow_dispatch:         # botão "Run workflow" para testar na hora
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurum-nuvem
+  cancel-in-progress: false
+
+jobs:
+  varredura:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cloud.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-cloud.txt
+
+      - name: Recuperar o estado da última execução
+        uses: actions/cache/restore@v6
+        with:
+          path: cloud_state
+          key: aurum-state-${{ github.run_id }}
+          restore-keys: aurum-state-
+
+      - name: Analisar e avisar no Telegram
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AURUM_DATA_DIR: ${{ runner.temp }}/aurum-data
+          PYTHONIOENCODING: utf-8
+        run: python -m app.cloud
+
+      - name: Guardar o estado para a próxima execução
+        if: always() && hashFiles('cloud_state/state.json') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: cloud_state
+          key: aurum-state-${{ github.run_id }}

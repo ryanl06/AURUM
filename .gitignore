@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+
+# Dados locais: banco com o token do Telegram, histórico e log. Nunca enviar ao GitHub.
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+.env
+
+# Estado da varredura na nuvem (fica no cache do GitHub Actions)
+cloud_state/
+
+.claude/settings.local.json

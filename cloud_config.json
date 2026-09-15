@@ -1,0 +1,10 @@
+{
+  "timeframe": "1h",
+  "symbols": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "WDOFUT", "WINFUT", "BTC-USD", "ETH-USD"],
+  "only_signals": true,
+  "heartbeat_hour": 8,
+  "settings": {
+    "capital": 10000,
+    "risk_per_trade_pct": 1
+  }
+}
