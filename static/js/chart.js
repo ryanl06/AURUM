@@ -344,6 +344,7 @@ export class MarketChart {
     const action = analysis.signal.action;
     if (action === "ENTRAR_AGORA" || action === "PREPARE_SE") {
       const p = analysis.plan;
+      if (analysis.signal.trigger) add(analysis.signal.trigger, COLORS.gold, "GATILHO", LWC.LineStyle.LargeDashed);
       add(p.stop, COLORS.bear, `STOP ${fmtPrice(p.stop_pct, 2)}%`);
       add(p.target1, "rgba(22,199,132,0.6)", "ALVO 1");
       add(p.target2, COLORS.bull, "ALVO 2");

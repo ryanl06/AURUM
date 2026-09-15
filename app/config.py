@@ -50,7 +50,9 @@ CHART_CANDLES = 400
 DEFAULT_SETTINGS: dict[str, str] = {
     "scan_interval_min": "5",
     "scan_timeframe": "15m",  # entradas no M15, guiadas pelas zonas do mensal/semanal/diário
-    "strategy_mode": "zonas",  # zonas = suportes/resistências M/S/D · indicadores = regras antigas · ambos
+    "strategy_mode": "pullback",  # pullback = rompimento M/S/D + correção + novo rompimento · zonas · indicadores · ambos
+    "big_candle_points": "1500",  # ouro: vela maior que isso (1.500 pontos = US$ 15) não vale como entrada
+    "news_guard_minutes": "30",  # bloqueio antes e depois de notícia de alto impacto
     "max_stop_pct": "3",  # stop loss obrigatório: nunca mais que 3% do preço de entrada
     "atr_stop_mult": "auto",  # auto = 2,0 no intraday e 1,5 no diário (validado no histórico)
     "reward_ratio": "2",

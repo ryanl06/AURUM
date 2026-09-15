@@ -26,7 +26,7 @@ const store = {
 };
 
 const state = {
-  symbol: store.get("symbol", "WDOFUT"),
+  symbol: store.get("symbol", "GC=F"),
   tf: store.get("tf", "15m"),
   mode: store.get("mode", "pro"),
   sound: store.get("sound", true),

@@ -127,14 +127,17 @@ def set_events(raw: list[dict]) -> None:
     _events, _fetched_at = _parse(raw), time.time()
 
 
-def context(symbol: str, kind: str, now: datetime, events: list[dict] | None = None, hours: int = 48) -> dict:
+def context(symbol: str, kind: str, now: datetime, events: list[dict] | None = None, hours: int = 48,
+            guard_minutes: int | None = None) -> dict:
     events = load() if events is None else events
     currencies = currencies_for(symbol, kind)
     relevant = [e for e in events if e["country"] in currencies and e["impact"] in ("High", "Medium")]
+    before = timedelta(minutes=guard_minutes) if guard_minutes is not None else GUARD_BEFORE
+    after = timedelta(minutes=guard_minutes) if guard_minutes is not None else GUARD_AFTER
     upcoming, blocking = [], None
     for e in relevant:
         delta = e["time_utc"] - now
-        if -GUARD_AFTER <= delta <= timedelta(hours=hours):
+        if -after <= delta <= timedelta(hours=hours):
             minutes = int(delta.total_seconds() // 60)
             view = {
                 "title": e["title_pt"], "original": e["title"], "country": e["country"], "impact": e["impact"],
@@ -143,10 +146,11 @@ def context(symbol: str, kind: str, now: datetime, events: list[dict] | None = N
                 "iso": e["time_utc"].astimezone(LOCAL_TZ).isoformat(),
             }
             upcoming.append(view)
-            if e["impact"] == "High" and -GUARD_AFTER <= delta <= GUARD_BEFORE and blocking is None:
+            if e["impact"] == "High" and -after <= delta <= before and blocking is None:
                 blocking = view
     return {"upcoming": upcoming[:8], "blocking": blocking, "currencies": sorted(c for c in currencies if c != "All"),
-            "source": "Forex Factory (semana atual)", "available": bool(events)}
+            "source": "Forex Factory (semana atual)", "available": bool(events),
+            "guard_minutes": int(before.total_seconds() // 60)}
 
 
 def describe_block(event: dict) -> str:

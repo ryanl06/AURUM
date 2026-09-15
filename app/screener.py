@@ -28,7 +28,7 @@ API_HOSTS = ("https://data-api.binance.vision", "https://api.binance.com")
 CACHE_FILE = DATA_DIR / "screener.json"
 UNIVERSE_SIZE = 24
 MIN_QUOTE_VOLUME = 20_000_000  # US$ negociados em 24h: liquidez para o preço da boleta ser realista
-SCAN_TIMEFRAMES = ("1h", "1d")
+SCAN_TIMEFRAMES = ("15m", "1h", "1d")
 REFRESH_SECONDS = 6 * 3600
 WORKERS = 3
 STABLES = {"USDC", "FDUSD", "TUSD", "USDP", "DAI", "BUSD", "EUR", "AEUR", "EURI", "USDE", "USD1", "BFUSD", "XUSD",
@@ -148,11 +148,18 @@ class Screener:
         except (OSError, ValueError):
             pass
 
-    def status(self) -> dict:
+    def status(self, settings: dict | None = None) -> dict:
         finished = self.data.get("finished_at")
         age = time.time() - datetime.fromisoformat(finished).timestamp() if finished else None
+        changed = False
+        if settings is not None:  # estratégia ou capital mudaram: o ranking antigo não vale mais
+            try:
+                changed = (self.data.get("strategy_mode") != settings.get("strategy_mode", "zonas")
+                           or abs(float(self.data.get("capital_brl") or 0) - float(settings.get("capital") or 0)) > 0.01)
+            except ValueError:
+                changed = True
         return {**self.data, "running": self.running, "progress": self.progress,
-                "stale": age is None or age > REFRESH_SECONDS}
+                "stale": age is None or age > REFRESH_SECONDS or changed}
 
     def start(self, settings: dict) -> bool:
         with self._lock:
@@ -207,6 +214,7 @@ def run(settings: dict, on_progress=None) -> dict:
 
     items = sorted((rate(c, views[c["symbol"]], capital_brl) for c in coins), key=lambda x: -x["score"])
     return {"items": items, "capital_brl": capital_brl, "brl_per_usd": usd_brl(), "error": None,
+            "strategy_mode": settings.get("strategy_mode", "zonas"),
             "finished_at": datetime.now(timezone.utc).astimezone(LOCAL_TZ).isoformat(timespec="seconds"),
             "timeframes": list(SCAN_TIMEFRAMES)}
 

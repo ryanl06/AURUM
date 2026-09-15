@@ -63,10 +63,15 @@ def fetch(symbol: str, timeframe: str, suffix: str = "", folder: Path | None = N
     path = _path(symbol, timeframe, suffix, folder or FOLDER)
     if path is None or not path.exists():
         return None
-    if (now or time.time()) - path.stat().st_mtime > STALE_SECONDS:
+    live = path.with_name(path.stem + "_live.csv")
+    newest = max(path.stat().st_mtime, live.stat().st_mtime if live.exists() else 0)
+    if (now or time.time()) - newest > STALE_SECONDS:
         return None  # MT4 fechado ou robô parado: usa outra fonte
     try:
         df, meta = read_file(path)
+        if live.exists():  # últimos candles gravados a cada poucos segundos substituem os do histórico
+            recent, _ = read_file(live)
+            df = pd.concat([df[~df.index.isin(recent.index)], recent]).sort_index()
     except (OSError, ValueError):
         return None
     if df.empty:
@@ -78,8 +83,9 @@ def fetch(symbol: str, timeframe: str, suffix: str = "", folder: Path | None = N
 def status(folder: Path | None = None, now: float | None = None) -> dict:
     folder = folder or FOLDER
     now = now or time.time()
-    files = sorted(folder.glob("*_*.csv")) if folder.exists() else []
-    newest = max((f.stat().st_mtime for f in files), default=None)
+    everything = sorted(folder.glob("*_*.csv")) if folder.exists() else []
+    files = [f for f in everything if not f.stem.endswith("_live")]
+    newest = max((f.stat().st_mtime for f in everything), default=None)
     symbols = sorted({f.stem.rsplit("_", 1)[0] for f in files})
     broker = None
     if files:

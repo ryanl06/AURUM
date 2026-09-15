@@ -230,6 +230,92 @@ def zone_features(df: pd.DataFrame, tf_seconds: int, daily: pd.DataFrame | None,
     return frame
 
 
+# ---------------------------------------------------------------- rompimento + pullback + novo rompimento
+
+SWING_K = 2  # candles de cada lado para confirmar o fundo/topo da correção
+MIN_PULLBACK_ATR = 0.5  # a correção precisa devolver pelo menos 0,5 ATR do movimento
+MAX_SETUP_BARS = 96  # o padrão expira em 96 candles (1 dia no M15)
+FAIL_ATR = 0.25  # voltar a fechar 0,25 ATR para dentro da zona cancela o rompimento
+GOLD_SYMBOLS = {"GC=F", "XAUUSD"}
+GOLD_POINT = 0.01  # XAU/USD com 2 casas: 1 ponto = US$ 0,01 (1.500 pontos = US$ 15)
+BIG_CANDLE_ATR = 3.0  # outros ativos: vela gigante = mais de 3 ATR
+
+
+def big_candle_limit(symbol: str, atr: pd.Series, points: float) -> pd.Series:
+    """Tamanho máximo da vela de entrada: pontos no ouro (padrão 1.500 = US$ 15), 3 ATR nos demais ativos."""
+    if symbol in GOLD_SYMBOLS and points > 0:
+        return pd.Series(points * GOLD_POINT, index=atr.index)
+    return atr * BIG_CANDLE_ATR
+
+
+def pullback_breakouts(df: pd.DataFrame, feat: pd.DataFrame, big_limit: pd.Series) -> pd.DataFrame:
+    """Rompe a zona principal → corrige formando fundo (compra) ou topo (venda) sem voltar para dentro da zona →
+    entra quando fecha além do topo/fundo anterior à correção. Vela de entrada gigante não vale: espera nova correção.
+
+    Percorre os candles em ordem usando só o que já tinha fechado em cada um (fundo confirmado k candles depois).
+    """
+    n = len(df)
+    o, h, l, c = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
+    atr = df["atr"].to_numpy(float)
+    limit = big_limit.reindex(df.index).to_numpy(float)
+    k = SWING_K
+    cols: dict[str, np.ndarray] = {}
+    for side, long in (("pbl", True), ("pbs", False)):
+        brk_flag = feat["break_up" if long else "break_down"].to_numpy(bool)
+        z_lo_arr = feat["bup_low" if long else "bdn_low"].to_numpy(float)
+        z_hi_arr = feat["bup_high" if long else "bdn_high"].to_numpy(float)
+        z_lab_arr = feat["bup_label" if long else "bdn_label"].to_numpy(object)
+        broken, corrected, crossed = np.zeros(n, bool), np.zeros(n, bool), np.zeros(n, bool)
+        trigger, stop, zone_lo, zone_hi = (np.full(n, np.nan) for _ in range(4))
+        label = np.empty(n, dtype=object)
+        state, start, swing, trig = 0, 0, np.nan, np.nan
+        lo = hi = np.nan
+        lab = None
+        for i in range(n):
+            a = atr[i] if np.isfinite(atr[i]) else 0.0
+            if brk_flag[i]:  # novo rompimento de zona principal: começa (ou recomeça) o padrão
+                state, start = 1, i
+                lo, hi, lab = z_lo_arr[i], z_hi_arr[i], z_lab_arr[i]
+                swing, trig = np.nan, np.nan
+            elif state:
+                failed = (c[i] < lo - FAIL_ATR * a) if long else (c[i] > hi + FAIL_ATR * a)
+                if failed or i - start > MAX_SETUP_BARS:
+                    state = 0
+            if state and i > start:
+                j = i - k  # fundo/topo em j só é confirmado agora, k candles depois
+                if j > start and j - k >= 0:
+                    window = l[j - k:i + 1] if long else h[j - k:i + 1]
+                    is_swing = (l[j] <= window.min()) if long else (h[j] >= window.max())
+                    peak = (h[start:j + 1].max()) if long else (l[start:j + 1].min())
+                    depth = (peak - l[j]) if long else (h[j] - peak)
+                    held = (l[j] >= lo - FAIL_ATR * a) if long else (h[j] <= hi + FAIL_ATR * a)
+                    if is_swing and held and depth >= MIN_PULLBACK_ATR * a:
+                        better = state == 1 or (l[j] < swing if long else h[j] > swing)
+                        if better:
+                            swing = l[j] if long else h[j]
+                        if state == 1:
+                            trig = peak
+                        state = 2
+            if state:
+                broken[i] = True
+                zone_lo[i], zone_hi[i], label[i] = lo, hi, lab
+            if state == 2:
+                corrected[i] = True
+                trigger[i] = trig
+                stop[i] = (swing - STOP_ATR * a) if long else (swing + STOP_ATR * a)
+                if (c[i] > trig) if long else (c[i] < trig):
+                    crossed[i] = True
+                    if h[i] - l[i] > limit[i]:  # vela gigante rompeu: espera outra correção
+                        state, start, swing, trig = 1, i, np.nan, np.nan
+                    else:
+                        state = 0  # entrada feita neste fechamento; o padrão recomeça do zero
+        cols.update({f"{side}_broken": broken, f"{side}_corrected": corrected, f"{side}_crossed": crossed,
+                     f"{side}_trigger": trigger, f"{side}_stop": stop, f"{side}_zone_low": zone_lo,
+                     f"{side}_zone_high": zone_hi, f"{side}_label": label})
+    cols["candle_ok"] = (h - l) <= limit
+    return pd.DataFrame(cols, index=df.index)
+
+
 def stop_prices(feat: pd.DataFrame, atr: pd.Series) -> dict[str, pd.Series]:
     """Stop do outro lado da zona para cada tipo de entrada (nunca mais curto que 0,5 ATR do candle)."""
     a = atr.reindex(feat.index)

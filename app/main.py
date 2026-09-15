@@ -392,7 +392,7 @@ def put_settings(values: dict[str, str]):
         clean.pop("telegram_token")  # campo mascarado não alterado
     for key in ("scan_interval_min", "max_stop_pct", "atr_stop_mult", "reward_ratio", "capital",
                 "risk_per_trade_pct", "price_move_alert_pct", "cost_pct", "max_trades_day", "daily_max_loss_r",
-                "max_consecutive_losses"):
+                "max_consecutive_losses", "big_candle_points", "news_guard_minutes"):
         if key in clean:
             if key in ("atr_stop_mult", "cost_pct") and clean[key].strip().lower() in ("auto", ""):
                 clean[key] = "auto"
@@ -407,7 +407,7 @@ def put_settings(values: dict[str, str]):
                 "news_guard", "risk_guard", "crypto_spot_only", "use_mt4"):
         if key in clean and clean[key] not in ("0", "1"):
             raise HTTPException(422, f"Valor inválido para {key}.")
-    if "strategy_mode" in clean and clean["strategy_mode"] not in ("zonas", "indicadores", "ambos"):
+    if "strategy_mode" in clean and clean["strategy_mode"] not in ("pullback", "zonas", "indicadores", "ambos"):
         raise HTTPException(422, "Estratégia inválida.")
     if "mt4_suffix" in clean:
         clean["mt4_suffix"] = clean["mt4_suffix"].strip()
@@ -483,10 +483,11 @@ def mt5_reconnect():
 @app.get("/api/screener")
 def screener_view(refresh: bool = False):
     """Ranking de moedas para capital pequeno. Recalcula em segundo plano quando está velho (6 h) ou a pedido."""
-    status = screener.status()
+    settings = db.get_settings()
+    status = screener.status(settings)
     if (refresh or status["stale"]) and not status["running"]:
-        screener.start(db.get_settings())
-        status = screener.status()
+        screener.start(settings)
+        status = screener.status(settings)
     return status
 
 

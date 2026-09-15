@@ -167,6 +167,49 @@ def build_zone_setups(df: pd.DataFrame, feat: pd.DataFrame | None, max_stop_pct:
     return setups
 
 
+PULLBACK_SETUP_IDS = ("compra_pullback", "venda_pullback")
+
+
+def build_pullback_setups(df: pd.DataFrame, pb: pd.DataFrame | None, feat: pd.DataFrame | None,
+                          max_stop_pct: float = 3.0, big_label: str = "Vela de entrada sem tamanho gigante",
+                          session: pd.Series | None = None, session_label: str | None = None) -> list[Setup]:
+    """Rompimento de zona do mensal/semanal/diário → correção com fundo/topo → novo rompimento (ver zones.py)."""
+    if pb is None or feat is None:
+        return []
+    c = df
+
+    def room(stop: pd.Series, target_level: pd.Series, long: bool) -> pd.Series:
+        risk = (c["close"] - stop) if long else (stop - c["close"])
+        space = (target_level - c["close"]) if long else (c["close"] - target_level)
+        return (space.isna() | (space >= ZONE_MIN_ROOM_R * risk)) & (risk > 0) & (risk <= c["close"] * max_stop_pct / 100)
+
+    setups = [
+        Setup("compra_pullback", BUY, "ROMPIMENTO + PULLBACK (COMPRA)", "PULLBACK", "level",
+              "Rompeu uma resistência principal, corrigiu formando fundo acima da zona e rompeu de novo o topo.",
+              [Condition("Rompeu resistência principal (mensal, semanal ou diário)", pb["pbl_broken"]),
+               Condition("Correção feita: fundo formado sem voltar para dentro da zona", pb["pbl_corrected"]),
+               Condition("Novo rompimento: fechou acima do topo anterior à correção", pb["pbl_crossed"]),
+               Condition(big_label, pb["candle_ok"]),
+               Condition("Stop abaixo do fundo (até o limite) e próxima resistência a 1 risco ou mais",
+                         room(pb["pbl_stop"], feat["next_res"], True))],
+              min_score=-101, stop_price=pb["pbl_stop"]),
+        Setup("venda_pullback", SELL, "ROMPIMENTO + PULLBACK (VENDA)", "PULLBACK", "level",
+              "Rompeu um suporte principal, corrigiu formando topo abaixo da zona e rompeu de novo o fundo.",
+              [Condition("Rompeu suporte principal (mensal, semanal ou diário)", pb["pbs_broken"]),
+               Condition("Correção feita: topo formado sem voltar para dentro da zona", pb["pbs_corrected"]),
+               Condition("Novo rompimento: fechou abaixo do fundo anterior à correção", pb["pbs_crossed"]),
+               Condition(big_label, pb["candle_ok"]),
+               Condition("Stop acima do topo (até o limite) e próximo suporte a 1 risco ou mais",
+                         room(pb["pbs_stop"], feat["next_sup"], False))],
+              min_score=-101, stop_price=pb["pbs_stop"]),
+    ]
+    if session is not None:
+        for s in setups:
+            s.conditions.append(Condition(session_label or "Sessão líquida aberta",
+                                          session.reindex(df.index).fillna(False).astype(bool)))
+    return setups
+
+
 def session_mask(index: pd.DatetimeIndex, start_hour_utc: int = 7, end_hour_utc: int = 17) -> pd.Series:
     """Sessões de Londres e Nova York (maior liquidez e menor spread no forex)."""
     hours = index.tz_convert("UTC").hour

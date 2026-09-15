@@ -337,7 +337,7 @@
         </article>
 
         <div class="tut-callout gold small-note">
-          <b>Como ler:</b> isto não é recomendação de investimento. Cada moeda passa pelo mesmo motor do painel, só com regras de <b>COMPRA</b> (na Spot você não vende o que não tem), nos gráficos de 1h e diário. A nota vem do resultado <b>fora da amostra</b>, com taxa de 0,1% na entrada e na saída. <b>Pode operar</b> = regras ganharam no período recente com amostra suficiente; <b>Observar</b> = perto do empate ou poucos sinais; <b>Evitar</b> = perderam dinheiro.
+          <b>Como ler:</b> isto não é recomendação de investimento. Cada moeda passa pelo mesmo motor do painel, só com regras de <b>COMPRA</b> (na Spot você não vende o que não tem), nos gráficos de 15 min, 1h e diário, com a estratégia escolhida em ⚙. A nota vem do resultado <b>fora da amostra</b>, com taxa de 0,1% na entrada e na saída. <b>Pode operar</b> = regras ganharam no período recente com amostra suficiente; <b>Observar</b> = perto do empate ou poucos sinais; <b>Evitar</b> = perderam dinheiro.
         </div>
 
         <div class="screener-status" id="screener-status"></div>
@@ -528,6 +528,21 @@
                 </ol>
                 <div class="tut-callout gold"><b>Sobre a precisão dos preços:</b> sem uma plataforma de dados em tempo real, o WDO usa o dólar à vista × 1000, o WIN usa o Ibovespa e as ações da B3 chegam com ~15 min de atraso. A direção e o horário do sinal continuam valendo; o preço exato é sempre o da XP — por isso existe o campo de ajuste. Para intraday, prefira 15m ou 1h.</div>
                 <p class="small muted">Opcional: quem quiser cotações em tempo real pode ligar o MetaTrader 5 em ⚙ Configurações (a XP oferece o MT5 na área logada, em Ferramentas e Serviços). Não é necessário para usar o AURUM.</p>
+              </div>
+            </article>
+
+            <article class="tut-step card" data-step="ouro" id="passo-ouro">
+              <header><span class="tut-num">Au</span><h3>Método do ouro (XAU/USD · M15): rompimento, pullback e novo rompimento</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+              <div class="tut-body">
+                <ol>
+                  <li><b>Rompimento</b> de uma resistência (ou suporte) principal do mensal, semanal ou diário — no gráfico, as linhas <code>R Semanal</code>, <code>S Mensal</code>…</li>
+                  <li><b>Correção:</b> espere o preço voltar e formar o <b>fundo</b> (na compra) ou o <b>topo</b> (na venda), sem entrar de novo na zona.</li>
+                  <li><b>Novo rompimento:</b> a entrada é só quando um candle de 15 min fecha além do topo/fundo anterior à correção — a linha dourada <b>GATILHO</b>.</li>
+                  <li><b>Vela gigante</b> (mais de 1.500 pontos = US$ 15): não entre nela; o AURUM espera outra correção.</li>
+                  <li><b>Notícia forte do dólar</b> (Payroll, juros, inflação…): nada de entrada 30 min antes e depois.</li>
+                </ol>
+                <p>Stop além do fundo/topo da correção, alvo 2× o risco. O card <b>Previsão</b> mostra em que etapa o padrão está (“Rompeu a resistência… aguardando correção”, “fundo formado: entrada se fechar acima de…”).</p>
+                <div class="tut-callout gold"><b>Resultado medido em 2 anos de M15 do ouro:</b> 43 operações, fator de lucro 1,28 (compras 2,01; vendas 0,69), mas o período mais recente perdeu (fator 0,75). É pouca amostra e o ouro subiu muito no período — confirme em <b>conta demo</b> e na aba <b>Desempenho</b> antes de usar dinheiro.</div>
               </div>
             </article>
 
@@ -824,11 +839,14 @@
         <label>Alerta se o preço mudar (%)<input name="price_move_alert_pct" type="number" step="0.1" min="0"></label>
         <label>Estratégia de entrada
           <select name="strategy_mode">
-            <option value="zonas">Zonas do mensal, semanal e diário (entrada coberta)</option>
-            <option value="ambos">Zonas + regras de indicadores</option>
+            <option value="pullback">Rompimento de zona M/S/D + pullback + novo rompimento</option>
+            <option value="zonas">Zonas do mensal, semanal e diário (reação e rompimento)</option>
+            <option value="ambos">Todas as regras (zonas + pullback + indicadores)</option>
             <option value="indicadores">Só regras de indicadores</option>
           </select>
         </label>
+        <label>Vela gigante no ouro (pontos) <small>1.500 = US$ 15 · não entra nela, espera correção</small><input name="big_candle_points" type="number" step="50" min="0"></label>
+        <label>Bloqueio por notícia forte (minutos antes e depois)<input name="news_guard_minutes" type="number" step="5" min="0" max="240"></label>
       </div>
       <h3 class="form-section">MetaTrader 4 (Hantec ou outra corretora) <span class="tg-status" id="mt4-status"></span></h3>
       <p class="hint">Instale o robô <code>mt4/AURUM_Exporter.mq4</code> no seu MT4 (passo a passo na aba Tutorial). Ele só grava as velas em arquivo — não envia ordens — e o AURUM passa a usar os preços da sua corretora.</p>

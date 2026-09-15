@@ -34,7 +34,39 @@ pip install -r requirements.txt
 python run.py
 ```
 
-## Estratégia padrão: zonas do mensal, semanal e diário com entrada no M15
+## Estratégia padrão (XAU/USD no M15): rompimento de zona + pullback + novo rompimento
+
+Pensada para o ouro no M15, de preferência com os preços do MT4 da corretora (ver abaixo). Para comprar (a venda é o
+espelho):
+
+1. **Rompimento:** um candle fecha acima de uma **resistência principal** do mensal, semanal ou diário.
+2. **Correção:** o preço devolve pelo menos 0,5 ATR e forma um **fundo confirmado** (2 candles de cada lado) **sem
+   voltar para dentro da zona**. Fechar de volta dentro da zona cancela o padrão; ele também expira em 1 dia.
+3. **Novo rompimento:** entrada só quando um candle **fecha acima do topo anterior à correção** (linha GATILHO).
+4. **Vela gigante:** se o candle do gatilho tiver mais de **1.500 pontos (US$ 15)**, não entra — espera outra
+   correção. Ajustável em ⚙.
+5. **Stop** abaixo do fundo da correção (até 3%); alvo 2× o risco; próxima resistência a pelo menos 1 risco.
+6. **Notícias fortes** (alto impacto do dólar): entradas bloqueadas 30 min antes e depois (ajustável em ⚙).
+7. **Sessão de Londres/NY** (04h–14h de Brasília) ligada: sem ela o resultado caiu para o empate.
+8. **PREPARE-SE** quando o fundo já se formou e o preço está a até 1 ATR do gatilho.
+
+**Resultado medido (honesto):** 2 anos de M15 do ouro (PAXG/USDT, token lastreado em ouro, 70 mil candles, custo
+0,03%), sem o filtro de notícias (não há calendário histórico):
+
+| Variante | Operações | Fator de lucro | R por operação | Últimos 30% |
+|---|---|---|---|---|
+| Rompimento + pullback, sessão Londres/NY | 43 | 1,28 | +0,11 | fator 0,75 |
+| Só compras | 24 | 2,01 | +0,30 | fator 1,09 |
+| Só vendas | 19 | 0,69 | −0,14 | fator 0,43 |
+| Mesmo padrão 24h | 109 | 0,97 | −0,01 | fator 1,02 |
+
+O ouro subiu de ~US$ 2.400 para ~US$ 4.300 nesse período, o que explica compras boas e vendas ruins. São poucas
+operações (~2 por mês) e o período mais recente perdeu: trate como hipótese a confirmar na aba **Desempenho** e em
+conta demo. O bloqueio de regras ruins desliga sozinho um lado que perder no histórico do ativo.
+
+Outras estratégias em ⚙ → **Estratégia de entrada**: zonas (reação e rompimento direto), indicadores ou todas.
+
+## Zonas do mensal, semanal e diário (modo "zonas")
 
 1. Do histórico diário saem os candles semanais e mensais. Topos e fundos confirmados (sem olhar o futuro) viram
    **zonas** com peso por tempo gráfico: mensal 3, semanal 2, diário 1. Zona principal = peso ≥ 2, largura máxima de
@@ -125,8 +157,9 @@ Aba **Começar pequeno**:
   5 perdas seguidas ou queda de 6R. Risco por operação: 3% até R$ 200, 2% até R$ 1.000, 1% acima — com pouco
   dinheiro 1% daria ordens abaixo do mínimo da Binance (US$ 5). Você decide quando mudar; o capital de ⚙ acompanha.
 - **Ranking de moedas:** os ~20 pares USDT mais negociados da Binance (sem stablecoins e tokens alavancados) passam
-  pelo motor com **só regras de compra** (Spot), nos gráficos de 1h e diário, e recebem nota pelo resultado fora da
-  amostra depois das taxas, pelo mínimo de ordem que cabe no seu capital e pelo spread. Atualiza a cada 6 horas.
+  pelo motor com **só regras de compra** (Spot), nos gráficos de 15 min, 1h e diário, e recebem nota pelo resultado
+  fora da amostra depois das taxas, pelo mínimo de ordem que cabe no seu capital e pelo spread. Atualiza a cada
+  6 horas ou quando você muda a estratégia ou o capital.
 - **Cripto só na compra (Spot)** ligado por padrão: sem sinais de venda em cripto.
 - A proteção **OCO** usa quantidade 0,1% menor que a compra: a Binance desconta a taxa da moeda recebida.
 
@@ -227,6 +260,9 @@ hora; sábado e domingo a cada 2 horas. São ~1.300 execuções por mês: sem li
 (2.000 min/mês) pode estourar a cota, e aí o GitHub pausa até o mês seguinte. O GitHub pode atrasar execuções
 agendadas em alguns minutos nos horários de pico — no M15 isso pode comer parte da janela de entrada.
 Para testar localmente sem enviar nada: `python -m app.cloud --dry-run`.
+
+Na nuvem não há MT4: o ouro vem do Yahoo (`GC=F`, futuro COMEX), que fica alguns dólares acima do XAU/USD à vista
+da corretora. Use o alerta como aviso de que o padrão aconteceu e confira gatilho e stop no seu MT4.
 
 ## Estrutura
 

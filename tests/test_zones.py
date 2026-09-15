@@ -17,7 +17,7 @@ from app.backtest import structural_distance
 from app.config import DEFAULT_SETTINGS, TIMEFRAMES
 from app.indicators import add_indicators
 from app.market_data import Snapshot
-from app.strategy import ZONE_SETUP_IDS, build_zone_setups
+from app.strategy import PULLBACK_SETUP_IDS, ZONE_SETUP_IDS, build_pullback_setups, build_zone_setups
 from tests.helpers import make_candles
 
 
@@ -85,7 +85,7 @@ class ZoneTests(unittest.TestCase):
         snap = Snapshot("ZZZ-USD", TIMEFRAMES["15m"], frame, "Teste", time.time())
         dsnap = Snapshot("ZZZ-USD", TIMEFRAMES["1d"], daily, "Teste", time.time())
         now = m15_idx[-1].to_pydatetime() + pd.Timedelta(minutes=5)
-        result = analyze(snap, {**DEFAULT_SETTINGS}, now=now, daily_snap=dsnap)
+        result = analyze(snap, {**DEFAULT_SETTINGS, "strategy_mode": "zonas"}, now=now, daily_snap=dsnap)
         self.assertEqual(result["signal"]["action"], "PREPARE_SE", result["signal"]["headline"])
         self.assertIn("suporte", result["signal"]["headline"])
         self.assertEqual(result["plan"]["stop_by"], "zona")
@@ -101,14 +101,92 @@ class ZoneTests(unittest.TestCase):
         daily = Snapshot("EURUSD=X", TIMEFRAMES["1d"], _daily(), "Euro", time.time())
         m15 = Snapshot("EURUSD=X", TIMEFRAMES["15m"],
                        make_candles(n=900, seed=8, freq="15min", start="2025-05-01 00:00", volume=False), "Euro", time.time())
-        result = analyze(m15, {**DEFAULT_SETTINGS}, daily_snap=daily)
+        result = analyze(m15, {**DEFAULT_SETTINGS, "strategy_mode": "zonas"}, daily_snap=daily)
         self.assertTrue(result["context"]["strategy"]["zones_active"])
         self.assertTrue({s["id"] for s in result["setups"]} <= set(ZONE_SETUP_IDS))
+        default = analyze(m15, {**DEFAULT_SETTINGS}, daily_snap=daily)  # padrão: rompimento + pullback
+        self.assertEqual({s["id"] for s in default["setups"]}, set(PULLBACK_SETUP_IDS))
         self.assertTrue(result["context"]["zones"]["supports"] or result["context"]["zones"]["resistances"])
         classic = analyze(m15, {**DEFAULT_SETTINGS, "strategy_mode": "indicadores"}, daily_snap=daily)
         self.assertFalse(classic["context"]["strategy"]["zones_active"])
         fallback = analyze(m15, {**DEFAULT_SETTINGS})  # sem diário: volta para os indicadores
         self.assertFalse(fallback["context"]["strategy"]["zones_active"])
+
+
+def _gold_breakout(bars: list[tuple[float, float, float, float]], zone=(99.0, 100.0)):
+    """Candles M15 sintéticos (o, h, l, c) com uma resistência principal pronta em `zone`."""
+    idx = pd.date_range("2026-03-02 08:00", periods=len(bars), freq="15min", tz="UTC")
+    df = pd.DataFrame(bars, columns=["open", "high", "low", "close"], index=idx)
+    df["volume"] = 100.0
+    df["atr"] = 1.0
+    lo, hi = zone
+    pc = df["close"].shift(1)
+    feat = pd.DataFrame(index=idx)
+    feat["break_up"] = (pc <= hi) & (df["open"] <= hi) & (df["close"] > hi + 0.1)
+    feat["break_down"] = False
+    for col, val in (("bup_low", lo), ("bup_high", hi), ("bdn_low", np.nan), ("bdn_high", np.nan)):
+        feat[col] = np.where(feat["break_up"], val, np.nan) if col.startswith("bup") else val
+    feat["bup_label"] = np.where(feat["break_up"], "Semanal+Diário", None)
+    feat["bdn_label"] = None
+    feat["next_res"], feat["next_sup"] = np.nan, np.nan
+    return df, feat
+
+
+# preço abaixo da zona → rompe → sobe até 104 → corrige com fundo em 101,5 → rompe o topo de 104
+PATTERN = ([(98.0, 98.4, 97.8, 98.2)] * 6 + [(98.2, 101.2, 98.1, 101.0), (101.0, 102.5, 100.8, 102.3),
+           (102.3, 104.0, 102.1, 103.8), (103.8, 103.9, 102.6, 102.8), (102.8, 102.9, 101.8, 102.0),
+           (102.0, 102.1, 101.5, 101.7), (101.7, 102.6, 101.6, 102.5), (102.5, 103.2, 102.3, 103.0),
+           (103.0, 103.6, 102.9, 103.5), (103.5, 104.8, 103.4, 104.6)])
+
+
+class PullbackTests(unittest.TestCase):
+    def test_break_correction_bottom_and_new_break_fires_once(self):
+        df, feat = _gold_breakout(PATTERN)
+        pb = zones.pullback_breakouts(df, feat, zones.big_candle_limit("GC=F", df["atr"], 1500))
+        last = len(df) - 1
+        self.assertTrue(pb["pbl_broken"].iat[6])
+        self.assertFalse(pb["pbl_corrected"].iat[10])  # fundo em 11 ainda não confirmado
+        self.assertTrue(pb["pbl_corrected"].iat[13])  # confirmado 2 candles depois do fundo
+        self.assertAlmostEqual(pb["pbl_trigger"].iat[last], 104.0)
+        self.assertLess(pb["pbl_stop"].iat[last], 101.5)  # stop abaixo do fundo da correção
+        # preços sintéticos perto de 100: stop de ~3,3% precisa de limite maior só neste teste
+        buy = next(s for s in build_pullback_setups(df, pb, feat, max_stop_pct=10) if s.id == "compra_pullback")
+        fired = buy.all_true()
+        self.assertEqual(list(np.flatnonzero(fired.to_numpy())), [last])
+
+    def test_giant_entry_candle_waits_for_new_correction(self):
+        bars = PATTERN[:-1] + [(103.5, 121.0, 103.4, 120.0)]  # vela de US$ 17,60 (> 1.500 pontos)
+        df, feat = _gold_breakout(bars)
+        pb = zones.pullback_breakouts(df, feat, zones.big_candle_limit("GC=F", df["atr"], 1500))
+        self.assertFalse(bool(pb["candle_ok"].iat[-1]))
+        buy = next(s for s in build_pullback_setups(df, pb, feat, max_stop_pct=50) if s.id == "compra_pullback")
+        self.assertTrue(pb["pbl_crossed"].iat[-1])  # rompeu o topo…
+        self.assertFalse(buy.all_true().any())  # …mas com vela gigante: sem entrada
+        more = bars + [(120.0, 120.5, 118.0, 118.5)]  # candle seguinte ainda aguarda nova correção
+        df2, feat2 = _gold_breakout(more)
+        pb2 = zones.pullback_breakouts(df2, feat2, zones.big_candle_limit("GC=F", df2["atr"], 1500))
+        self.assertTrue(pb2["pbl_broken"].iat[-1])
+        self.assertFalse(pb2["pbl_corrected"].iat[-1])
+
+    def test_falling_back_into_zone_cancels_breakout(self):
+        bars = PATTERN[:9] + [(103.8, 103.9, 98.0, 98.3)] + [(98.3, 104.9, 98.2, 104.8)]
+        df, feat = _gold_breakout(bars)
+        pb = zones.pullback_breakouts(df, feat, zones.big_candle_limit("GC=F", df["atr"], 1500))
+        self.assertFalse(pb["pbl_broken"].iat[9])
+        self.assertFalse(pb["pbl_crossed"].any())
+
+    def test_detector_is_causal(self):
+        df, feat = _gold_breakout(PATTERN)
+        limit = zones.big_candle_limit("GC=F", df["atr"], 1500)
+        full = zones.pullback_breakouts(df, feat, limit)
+        for cut in range(8, len(df)):
+            part = zones.pullback_breakouts(df.iloc[:cut], feat.iloc[:cut], limit.iloc[:cut])
+            pd.testing.assert_frame_equal(full.iloc[:cut].astype(str), part.astype(str))
+
+    def test_big_candle_limit_is_points_on_gold_and_atr_elsewhere(self):
+        atr = pd.Series([2.0, 2.0])
+        self.assertEqual(list(zones.big_candle_limit("GC=F", atr, 1500)), [15.0, 15.0])
+        self.assertEqual(list(zones.big_candle_limit("BTC-USD", atr, 1500)), [6.0, 6.0])
 
 
 def _write_mt4(folder: Path, name: str, offset: int, rows: int = 120, start: int = 1_757_000_000, step: int = 900) -> Path:
@@ -144,6 +222,17 @@ class Mt4Tests(unittest.TestCase):
         self.assertIsNone(mt4_source.fetch("EURUSD=X", "15m", folder=self.folder))  # MT4 fechado
         status = mt4_source.status(self.folder)
         self.assertEqual((status["files"], status["connected"], status["broker"]), (1, False, "Hantec Markets"))
+
+    def test_live_file_updates_last_candles(self):
+        _write_mt4(self.folder, "XAUUSD_M15.csv", offset=0, rows=120)
+        live = self.folder / "XAUUSD_M15_live.csv"
+        last = 1_757_000_000 + 119 * 900
+        live.write_text(f"#AURUM,XAUUSD,M15,0,1,2,Hantec Markets\r\n{last},1.2,9.9,1.0,9.5,5\r\n{last + 900},9.5,9.8,9.1,9.7,3\r\n",
+                        encoding="latin-1")
+        df, _ = mt4_source.fetch("GC=F", "15m", folder=self.folder)
+        self.assertEqual(len(df), 121)  # candle novo acrescentado
+        self.assertEqual(df["close"].iloc[-2], 9.5)  # candle do histórico atualizado pelo arquivo ao vivo
+        self.assertEqual(mt4_source.status(self.folder)["symbols"], ["XAUUSD"])
 
     def test_market_data_prefers_mt4_when_enabled(self):
         _write_mt4(self.folder, "EURUSD_M15.csv", offset=0)

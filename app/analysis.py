@@ -16,12 +16,12 @@ from .explain import atr_ratio, fmt_datetime, fmt_price, fmt_time, forecast, ind
 from .indicators import add_indicators, has_volume, session_vwap
 from .levels import divergence_series, find_pivots, levels_at
 from .market_data import Snapshot
-from .strategy import (BUY, SELL, StrategyContext, build_setups, build_zone_setups, eta_estimates, htf_bias_series,
-                       score_series, session_mask)
+from .strategy import (BUY, PULLBACK_SETUP_IDS, SELL, StrategyContext, build_pullback_setups, build_setups,
+                       build_zone_setups, eta_estimates, htf_bias_series, score_series, session_mask)
 from .ticket import build_ticket
 
 PREPARE_MAX_ETA = 4  # candles: só avisa "prepare-se" se o disparo estiver próximo
-STRATEGY_MODES = ("zonas", "indicadores", "ambos")
+STRATEGY_MODES = ("pullback", "zonas", "indicadores", "ambos")
 ZONE_APPROACH_ATR = 1.0  # preço a até 1 ATR de uma zona principal = prepare-se para a reação
 PROBABILITY_HORIZON = 3
 SESSION_LABEL = "Sessão de Londres/Nova York aberta (04h–14h de Brasília)"
@@ -58,7 +58,9 @@ def numeric_settings(settings: dict, timeframe_seconds: int, kind: str) -> dict:
         "session_filter": settings.get("session_filter", "1") == "1",
         "quality_gate": settings.get("quality_gate", "1") == "1",
         "spot_only": kind == "crypto" and settings.get("crypto_spot_only", "1") == "1",
-        "mode": settings.get("strategy_mode", "zonas") if settings.get("strategy_mode") in STRATEGY_MODES else "zonas",
+        "mode": settings.get("strategy_mode") if settings.get("strategy_mode") in STRATEGY_MODES else "pullback",
+        "big_points": f("big_candle_points", 1500),
+        "news_minutes": int(f("news_guard_minutes", 30)),
     }
 
 
@@ -109,16 +111,25 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     # Zonas principais do mensal/semanal/diário (modo padrão) e/ou as regras de indicadores.
     zone_daily = daily_snap.candles if daily_snap is not None else (snap.candles if daily else None)
     feat = _cached_zones(snap.symbol, tf, df, market["open"], now, zone_daily) if cfg["mode"] != "indicadores" else None
+    # Rompimento de zona → correção com fundo/topo → novo rompimento (vela gigante não vale como entrada).
+    big_limit = zones.big_candle_limit(snap.symbol, df["atr"], cfg["big_points"])
+    big_label = (f"Vela de entrada até {cfg['big_points']:,.0f} pontos (US$ {cfg['big_points'] * zones.GOLD_POINT:,.2f})"
+                 .replace(",", "X").replace(".", ",").replace("X", ".")
+                 if snap.symbol in zones.GOLD_SYMBOLS and cfg["big_points"] > 0 else "Vela de entrada menor que 3 ATR")
+    pb = zones.pullback_breakouts(df, feat, big_limit) if feat is not None and cfg["mode"] in ("pullback", "ambos") else None
 
-    def strategy_setups(frame: pd.DataFrame, zone_frame: pd.DataFrame | None) -> list:
-        zone_list = (build_zone_setups(frame, zone_frame, cfg["max_stop"], strat_ctx.session_mask, strat_ctx.session_label)
-                     if zone_frame is not None else [])
+    def strategy_setups(frame: pd.DataFrame, zone_frame: pd.DataFrame | None, pb_frame: pd.DataFrame | None) -> list:
+        session, label = strat_ctx.session_mask, strat_ctx.session_label
+        pullback = build_pullback_setups(frame, pb_frame, zone_frame, cfg["max_stop"], big_label, session, label)
+        if cfg["mode"] == "pullback" and pullback:
+            return _operable(pullback, cfg)
+        zone_list = build_zone_setups(frame, zone_frame, cfg["max_stop"], session, label) if zone_frame is not None else []
         if cfg["mode"] == "zonas" and zone_list:
             return _operable(zone_list, cfg)
         classic = build_setups(frame, volume_ok, strat_ctx)
-        return _operable(classic + zone_list if cfg["mode"] == "ambos" else classic, cfg)
+        return _operable(classic + zone_list + pullback if cfg["mode"] == "ambos" else classic, cfg)
 
-    setups = strategy_setups(df, feat)
+    setups = strategy_setups(df, feat, pb)
     zones_active = any(s.kind == "level" for s in setups)
     score = score_series(df, volume_ok)
     n = len(df)
@@ -137,7 +148,8 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     # Backtest, calibração e estrutura só com candles fechados (as mesmas regras do sinal ao vivo).
     closed_df = df.iloc[: closed_i + 1]
     closed_score = score.iloc[: closed_i + 1]
-    bt = run_backtest(closed_df, strategy_setups(closed_df, feat.iloc[: closed_i + 1] if feat is not None else None),
+    bt = run_backtest(closed_df, strategy_setups(closed_df, feat.iloc[: closed_i + 1] if feat is not None else None,
+                                                 pb.iloc[: closed_i + 1] if pb is not None else None),
                       closed_score,
                       atr_mult=cfg["atr_mult"], max_stop_pct=cfg["max_stop"], reward_ratio=cfg["reward"],
                       cost_pct=cfg["cost"])
@@ -199,10 +211,12 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     zone_view = zones.zones_view(feat.attrs.get("zones_now") if feat is not None else None, price, decimals)
     approach = []
     if zones_active and not fired_closed and not fired_live:
-        approach = _zone_approach(setups, setup_views, zone_view, price, atr_now, decimals)
+        approach = (_pullback_waiting(setups, setup_views, pb, live_i, price, atr_now, decimals) if pb is not None
+                    else _zone_approach(setups, setup_views, zone_view, price, atr_now, decimals))
         near.extend(a[:3] for a in approach)
 
-    news_ctx = news.context(snap.symbol, kind, now, events if events is not None else [])
+    news_ctx = news.context(snap.symbol, kind, now, events if events is not None else [],
+                            guard_minutes=cfg["news_minutes"])
     default_side = BUY if cfg["spot_only"] or (score_live or 0) >= 0 else SELL
     preview_plan = trade_plan(price, atr_now, default_side, cfg, decimals, snap.symbol, kind)
     ctx = {
@@ -221,7 +235,18 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     else:
         signal = entry_signal(ctx, fired_closed, fired_live, near, in_course, blocked)
         waiting = next((a for a in approach if a[0].id == signal.get("setup_id")), None)
-        if signal["action"] == "PREPARE_SE" and waiting:
+        if signal["action"] == "PREPARE_SE" and waiting and waiting[3].get("kind") == "pullback":
+            info, long = waiting[3], waiting[0].side == BUY
+            signal = {**signal, "trigger": info["trigger"],
+                      "headline": f"{'Fundo' if long else 'Topo'} formado depois do rompimento · aguardando novo rompimento",
+                      "explanation": f"O preço rompeu a {info['zone']}, corrigiu e formou {'fundo' if long else 'topo'} em "
+                                     f"{fmt_price(info['swing'], decimals)}. Entrada só se um candle de {tf.label} fechar "
+                                     f"{'acima' if long else 'abaixo'} de {fmt_price(info['trigger'], decimals)} "
+                                     f"({'topo' if long else 'fundo'} anterior à correção) e a vela não for gigante.",
+                      "simple": f"Espere fechar {'acima' if long else 'abaixo'} de {fmt_price(info['trigger'], decimals)}.",
+                      "window": {**(signal.get("window") or {}),
+                                 "label": f"Gatilho {fmt_price(info['trigger'], decimals)} · no fechamento do candle de {tf.label}"}}
+        elif signal["action"] == "PREPARE_SE" and waiting:
             word = "suporte" if waiting[0].side == BUY else "resistência"
             reaction = "fechar acima" if waiting[0].side == BUY else "fechar abaixo"
             signal = {**signal, "headline": f"Preço chegando no {word} principal · {waiting[0].name}",
@@ -231,8 +256,8 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
                       "simple": f"Chegando no {word}. Espere a reação no fechamento do candle.",
                       "window": {**(signal.get("window") or {}), "label": f"Perto da zona · confirmação no fechamento do candle de {tf.label}"}}
         side = signal.get("side") or default_side
-        zone_stop = _zone_stop(signal, setups, feat, closed_i, live_i, price, atr_now, cfg["max_stop"], decimals)
-        if zone_stop is None and signal["action"] == "PREPARE_SE" and waiting:
+        zone_stop = _zone_stop(signal, setups, feat, closed_i, live_i, price, atr_now, cfg["max_stop"], decimals, pb)
+        if zone_stop is None and signal["action"] == "PREPARE_SE" and waiting and "low" in waiting[3]:
             z, long = waiting[3], waiting[0].side == BUY  # stop previsto: atrás da zona que o preço está testando
             planned = (z["low"] - zones.STOP_ATR * atr_now) if long else (z["high"] + zones.STOP_ATR * atr_now)
             dist = structural_distance(price, planned, atr_now, long, cfg["max_stop"])
@@ -241,13 +266,15 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
                                                   f"({fmt_price(z['low'], decimals)} – {fmt_price(z['high'], decimals)})"}
         if zone_stop:
             plan = trade_plan(price, atr_now, side, cfg, decimals, snap.symbol, kind, dist=zone_stop["dist"])
-            signal = {**signal, "zone": zone_stop["zone"],
-                      "explanation": f"{signal['explanation']} Zona: {zone_stop['zone']}. Stop atrás da zona."}
+            where = "Stop além do fundo/topo da correção." if zone_stop.get("pullback") else "Stop atrás da zona."
+            signal = {**signal, "zone": zone_stop["zone"], **({"trigger": zone_stop["trigger"]} if zone_stop.get("trigger") else {}),
+                      "explanation": f"{signal['explanation']} Zona: {zone_stop['zone']}. {where}"}
         else:
             plan = preview_plan if side == default_side else trade_plan(price, atr_now, side, cfg, decimals, snap.symbol, kind)
 
-    extra_reads = _context_reads(df, closed_i, live_i, bull_div, bear_div, candle_list, levels, htf_view, decimals,
-                                 session_applies, strat_ctx, structure)
+    extra_reads = _pullback_reads(pb, live_i, df, decimals) + _context_reads(
+        df, closed_i, live_i, bull_div, bear_div, candle_list, levels, htf_view, decimals, session_applies, strat_ctx,
+        structure)
     probability = probability_for(calib, score_live)
     forecast_view = forecast(df, live_i, score_live or 0, etas, last_start, tf.seconds, daily,
                              extra_reads=extra_reads, probability=probability, horizon=PROBABILITY_HORIZON)
@@ -296,7 +323,9 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
             "levels": _levels_view(levels, decimals),
             "zones": zone_view,
             "strategy": {"mode": cfg["mode"], "zones_active": zones_active,
-                         "text": ("Entradas nas zonas de suporte/resistência do mensal, semanal e diário, sempre cobertas"
+                         "text": ("Rompimento de zona do mensal/semanal/diário, correção com fundo/topo e novo rompimento"
+                                  if zones_active and cfg["mode"] == "pullback" else
+                                  "Entradas nas zonas de suporte/resistência do mensal, semanal e diário, sempre cobertas"
                                   if zones_active else
                                   "Sem histórico diário para montar as zonas: usando as regras de indicadores"
                                   if cfg["mode"] != "indicadores" else "Regras de indicadores (médias, MACD, RSI)")},
@@ -368,8 +397,40 @@ def _zone_approach(setups, setup_views, zone_view, price, atr, decimals) -> list
     return out
 
 
-def _zone_stop(signal, setups, feat, closed_i, live_i, price, atr, max_stop, decimals) -> dict | None:
-    """Stop atrás da zona que gerou o sinal (em vez do stop pelo ATR)."""
+def _pullback_waiting(setups, setup_views, pb, i, price, atr, decimals) -> list[tuple]:
+    """Fundo/topo já formado depois do rompimento e preço perto do gatilho: prepare-se para o novo rompimento."""
+    if atr <= 0:
+        return []
+    by_id = {s.id: s for s in setups}
+    blocked = {v["id"] for v in setup_views if v["blocked"]}
+    out = []
+    for setup_id, side in (("compra_pullback", "pbl"), ("venda_pullback", "pbs")):
+        if setup_id not in by_id or setup_id in blocked or not bool(pb[f"{side}_corrected"].iat[i]):
+            continue
+        trigger = float(pb[f"{side}_trigger"].iat[i])
+        long = side == "pbl"
+        gap = (trigger - price) if long else (price - trigger)
+        if 0 <= gap <= ZONE_APPROACH_ATR * atr:
+            info = {"kind": "pullback", "trigger": trigger, "swing": _swing_from_stop(pb, side, i, atr),
+                    "zone": _pullback_zone(pb, side, i, decimals)}
+            out.append((by_id[setup_id], 1, f"Fechar {'acima' if long else 'abaixo'} de {fmt_price(trigger, decimals)} "
+                                            f"({'topo' if long else 'fundo'} anterior à correção)", info))
+    return out
+
+
+def _swing_from_stop(pb, side, i, atr) -> float:
+    stop = float(pb[f"{side}_stop"].iat[i])
+    return stop + zones.STOP_ATR * atr if side == "pbl" else stop - zones.STOP_ATR * atr
+
+
+def _pullback_zone(pb, side, i, decimals) -> str:
+    kind = "resistência" if side == "pbl" else "suporte"
+    return (f"{kind} {pb[f'{side}_label'].iat[i]} ({fmt_price(pb[f'{side}_zone_low'].iat[i], decimals)} – "
+            f"{fmt_price(pb[f'{side}_zone_high'].iat[i], decimals)})")
+
+
+def _zone_stop(signal, setups, feat, closed_i, live_i, price, atr, max_stop, decimals, pb=None) -> dict | None:
+    """Stop estrutural do sinal: atrás da zona, ou além do fundo/topo da correção no rompimento com pullback."""
     if feat is None or signal["action"] not in ("ENTRAR_AGORA", "PREPARE_SE"):
         return None
     setup = next((s for s in setups if s.id == signal.get("setup_id") and s.stop_price is not None), None)
@@ -382,6 +443,10 @@ def _zone_stop(signal, setups, feat, closed_i, live_i, price, atr, max_stop, dec
     dist = structural_distance(price, float(stop), atr, setup.side == BUY, max_stop)
     if dist is None:
         return None
+    if pb is not None and setup.id in PULLBACK_SETUP_IDS:
+        side = "pbl" if setup.side == BUY else "pbs"
+        return {"dist": dist, "pullback": True, "trigger": float(pb[f"{side}_trigger"].iat[i]),
+                "zone": f"rompimento da {_pullback_zone(pb, side, i, decimals)}"}
     return {"dist": dist, "zone": zones.describe(feat, i, setup.id, decimals)}
 
 
@@ -402,6 +467,30 @@ def _levels_view(levels: dict, decimals: int) -> dict:
                 "distance_pct": num(lv["distance_pct"], 2)}
     return {"supports": [view(lv) for lv in levels["supports"]],
             "resistances": [view(lv) for lv in levels["resistances"]]}
+
+
+def _pullback_reads(pb, i, df, decimals) -> list[dict]:
+    """Em que etapa está o padrão rompimento → correção → novo rompimento, nos dois sentidos."""
+    if pb is None:
+        return []
+    reads = []
+    atr = float(df["atr"].iat[i]) if pd.notna(df["atr"].iat[i]) else 0.0
+    for side, long in (("pbl", True), ("pbs", False)):
+        if not bool(pb[f"{side}_broken"].iat[i]):
+            continue
+        zone = _pullback_zone(pb, side, i, decimals)
+        tone = "bull" if long else "bear"
+        if bool(pb[f"{side}_corrected"].iat[i]):
+            trigger = fmt_price(float(pb[f"{side}_trigger"].iat[i]), decimals)
+            swing = fmt_price(_swing_from_stop(pb, side, i, atr), decimals)
+            reads.append({"tone": tone, "text": f"Rompeu a {zone} e corrigiu com {'fundo' if long else 'topo'} em {swing}: "
+                                                f"entrada se fechar {'acima' if long else 'abaixo'} de {trigger}"})
+        else:
+            reads.append({"tone": "neutral", "text": f"Rompeu a {zone}: aguardando a correção e a formação do "
+                                                     f"{'fundo' if long else 'topo'} antes de qualquer entrada"})
+    if not bool(pb["candle_ok"].iat[i]):
+        reads.append({"tone": "neutral", "text": "Vela atual gigante: não entre nela, espere a correção"})
+    return reads
 
 
 def _context_reads(df, closed_i, live_i, bull_div, bear_div, candle_list, levels, htf_view, decimals,

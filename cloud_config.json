@@ -1,11 +1,13 @@
 {
   "timeframe": "15m",
-  "symbols": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "WDOFUT", "WINFUT", "BTC-USD", "ETH-USD"],
+  "symbols": ["GC=F"],
   "only_signals": true,
   "heartbeat_hour": 8,
   "settings": {
     "capital": 10000,
     "risk_per_trade_pct": 1,
-    "strategy_mode": "zonas"
+    "strategy_mode": "pullback",
+    "big_candle_points": 1500,
+    "news_guard_minutes": 30
   }
 }

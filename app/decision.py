@@ -94,7 +94,8 @@ def apply_guards(sig: dict, ctx: dict) -> dict:
         return {**sig, "action": "AGUARDE", "title": "AGUARDE", "tone": "wait", "right_moment": False,
                 "window": None, "horizon": None,
                 "headline": f"Notícia de alto impacto — não entre agora ({sig.get('setup') or 'sinal'} em espera)",
-                "explanation": f"{describe_block(block)} Entradas ficam bloqueadas de 30 min antes a 30 min depois, "
+                "explanation": f"{describe_block(block)} Entradas ficam bloqueadas de "
+                               f"{ctx['news'].get('guard_minutes', 30)} min antes a {ctx['news'].get('guard_minutes', 30)} min depois, "
                                "porque o preço costuma saltar e o stop pode não segurar.",
                 "simple": "Notícia forte chegando. Espere passar.", "guard": "news"}
     return sig
