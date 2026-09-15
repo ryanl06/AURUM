@@ -26,7 +26,9 @@ export function setupTutorial() {
 
   nav.innerHTML = steps.map((step) => {
     const title = step.querySelector("h3").textContent;
-    return `<a href="#passo-${step.dataset.step}" data-step="${step.dataset.step}">${step.dataset.step}. ${title}</a>`;
+    const num = step.querySelector(".tut-num").textContent;
+    const label = /^\d+$/.test(num) ? `${num}.` : num;
+    return `<a href="#passo-${step.dataset.step}" data-step="${step.dataset.step}">${label} ${title}</a>`;
   }).join("");
 
   const refresh = () => {
