@@ -1,17 +1,15 @@
-"""Zonas do mensal/semanal/diário com entrada no M15 e leitura do MetaTrader 4 (sem internet)."""
+"""Zonas do mensal/semanal/diário, rompimento com pullback e zonas desenhadas no MT5 (sem internet)."""
 
 from __future__ import annotations
 
-import os
-import tempfile
 import time
 import unittest
-from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 
-from app import market_data, mt4_source, zones
+from app import zones
 from app.analysis import analyze
 from app.backtest import structural_distance
 from app.config import DEFAULT_SETTINGS, TIMEFRAMES
@@ -187,67 +185,28 @@ class PullbackTests(unittest.TestCase):
         atr = pd.Series([2.0, 2.0])
         self.assertEqual(list(zones.big_candle_limit("GC=F", atr, 1500)), [15.0, 15.0])
         self.assertEqual(list(zones.big_candle_limit("BTC-USD", atr, 1500)), [6.0, 6.0])
+        self.assertEqual(list(zones.big_candle_limit("GC=F", atr, 1500, point=0.001)), [1.5, 1.5])  # ouro com 3 casas
 
 
-def _write_mt4(folder: Path, name: str, offset: int, rows: int = 120, start: int = 1_757_000_000, step: int = 900) -> Path:
-    path = folder / name
-    lines = [f"#AURUM,EURUSD,M15,{offset},1,5,Hantec Markets"]
-    for i in range(rows):
-        p = 1.1 + i * 0.0001
-        lines.append(f"{start + i * step},{p:.5f},{p + 0.0005:.5f},{p - 0.0005:.5f},{p + 0.0002:.5f},{100 + i}")
-    path.write_text("\r\n".join(lines) + "\r\n", encoding="latin-1")
-    return path
+class ZoneCacheTests(unittest.TestCase):
+    def test_new_candles_extend_the_cache_exactly_like_a_full_recompute(self):
+        from datetime import timedelta
 
-
-class Mt4Tests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.folder = Path(self.tmp.name)
-        self.addCleanup(self.tmp.cleanup)
-
-    def test_symbol_mapping(self):
-        self.assertEqual(mt4_source.mt4_symbol("EURUSD=X"), "EURUSD")
-        self.assertEqual(mt4_source.mt4_symbol("GC=F", ".r"), "XAUUSD.r")
-        self.assertIsNone(mt4_source.mt4_symbol("PETR4.SA"))
-
-    def test_reads_server_time_as_utc_and_ignores_stale_files(self):
-        path = _write_mt4(self.folder, "EURUSD_M15.csv", offset=3 * 3600)
-        got = mt4_source.fetch("EURUSD=X", "15m", folder=self.folder)
-        self.assertIsNotNone(got)
-        df, source = got
-        self.assertEqual(df.index[0], pd.Timestamp(1_757_000_000 - 3 * 3600, unit="s", tz="UTC"))
-        self.assertIn("Hantec Markets", source)
-        old = time.time() - 3600
-        os.utime(path, (old, old))
-        self.assertIsNone(mt4_source.fetch("EURUSD=X", "15m", folder=self.folder))  # MT4 fechado
-        status = mt4_source.status(self.folder)
-        self.assertEqual((status["files"], status["connected"], status["broker"]), (1, False, "Hantec Markets"))
-
-    def test_live_file_updates_last_candles(self):
-        _write_mt4(self.folder, "XAUUSD_M15.csv", offset=0, rows=120)
-        live = self.folder / "XAUUSD_M15_live.csv"
-        last = 1_757_000_000 + 119 * 900
-        live.write_text(f"#AURUM,XAUUSD,M15,0,1,2,Hantec Markets\r\n{last},1.2,9.9,1.0,9.5,5\r\n{last + 900},9.5,9.8,9.1,9.7,3\r\n",
-                        encoding="latin-1")
-        df, _ = mt4_source.fetch("GC=F", "15m", folder=self.folder)
-        self.assertEqual(len(df), 121)  # candle novo acrescentado
-        self.assertEqual(df["close"].iloc[-2], 9.5)  # candle do histórico atualizado pelo arquivo ao vivo
-        self.assertEqual(mt4_source.status(self.folder)["symbols"], ["XAUUSD"])
-
-    def test_market_data_prefers_mt4_when_enabled(self):
-        _write_mt4(self.folder, "EURUSD_M15.csv", offset=0)
-        original = mt4_source.FOLDER
-        mt4_source.FOLDER = self.folder
-        market_data._cache.pop(("EURUSD=X", "15m"), None)
-        try:
-            market_data.configure({"use_mt4": "1", "mt4_suffix": ""})
-            snap = market_data.get_candles("EURUSD=X", "15m", force=True)
-            self.assertIn("MetaTrader 4", snap.source)
-            self.assertEqual(len(snap.candles), 120)
-        finally:
-            mt4_source.FOLDER = original
-            market_data.configure({})
-            market_data._cache.pop(("EURUSD=X", "15m"), None)
+        from app import analysis
+        daily = _daily()
+        m15 = add_indicators(make_candles(n=3000, seed=4, freq="15min", start="2025-04-01 00:00"))
+        tf = TIMEFRAMES["15m"]
+        analysis._zone_cache.clear()
+        self.addCleanup(analysis._zone_cache.clear)
+        first, later = m15.iloc[:-12], m15.iloc[10:-2]  # 10 candles novos e janela deslizando (como no MT5)
+        far = m15.index[-1].to_pydatetime() + timedelta(days=30)
+        analysis._cached_zones("T", tf, first, False, far, daily)
+        with mock.patch.object(zones, "zone_features", wraps=zones.zone_features) as calc:
+            got = analysis._cached_zones("T", tf, later, False, far, daily)
+        self.assertEqual(len(calc.call_args.args[0]), 11)  # só os candles novos (+ o anterior, pelo fechamento)
+        full = zones.zone_features(later, 900, daily)
+        pd.testing.assert_frame_equal(full.iloc[1:], got.iloc[1:])  # 1ª linha da janela nova não tem fechamento anterior
+        self.assertEqual(list(full.attrs["zones_now"].label), list(got.attrs["zones_now"].label))
 
 
 if __name__ == "__main__":

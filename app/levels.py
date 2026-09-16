@@ -73,16 +73,6 @@ def levels_at(df: pd.DataFrame, pivots: Pivots, i: int, lookback: int = 300, max
     }
 
 
-def room_to_level(levels: dict, side: str, entry: float, risk: float) -> float | None:
-    """Quantos 'riscos' (R) cabem até o nível contrário mais próximo. None = caminho livre."""
-    if risk <= 0:
-        return None
-    level = levels["nearest_resistance"] if side == "COMPRA" else levels["nearest_support"]
-    if not level:
-        return None
-    return abs(level["price"] - entry) / risk
-
-
 def divergence_series(df: pd.DataFrame, pivots: Pivots, max_gap: int = 60, active_for: int = 12) -> tuple[pd.Series, pd.Series]:
     """Divergência de RSI: preço faz fundo mais baixo e RSI fundo mais alto (alta) — e o espelho (baixa).
 
@@ -108,29 +98,3 @@ def divergence_series(df: pd.DataFrame, pivots: Pivots, max_gap: int = 60, activ
     mark(pivots.low_idx, lows, bull, True)
     mark(pivots.high_idx, highs, bear, False)
     return pd.Series(bull, index=df.index), pd.Series(bear, index=df.index)
-
-
-def candle_patterns(df: pd.DataFrame, i: int) -> list[dict]:
-    """Padrões clássicos no candle i (use um candle fechado)."""
-    if i < 1:
-        return []
-    o, h, l, c = (float(df[k].iat[i]) for k in ("open", "high", "low", "close"))
-    po, pc = float(df["open"].iat[i - 1]), float(df["close"].iat[i - 1])
-    body, rng = abs(c - o), h - l
-    if rng <= 0:
-        return []
-    upper, lower = h - max(o, c), min(o, c) - l
-    downtrend = c < df["ema21"].iat[i] if pd.notna(df["ema21"].iat[i]) else False
-    uptrend = c > df["ema21"].iat[i] if pd.notna(df["ema21"].iat[i]) else False
-    out = []
-    if pc < po and c > o and o <= pc and c >= po and body > abs(pc - po):
-        out.append({"name": "Engolfo de alta", "tone": "bull", "text": "Engolfo de alta — compradores tomaram o controle do candle anterior"})
-    if pc > po and c < o and o >= pc and c <= po and body > abs(pc - po):
-        out.append({"name": "Engolfo de baixa", "tone": "bear", "text": "Engolfo de baixa — vendedores engoliram o candle anterior"})
-    if lower >= 2 * body and upper <= max(body, rng * 0.1) and downtrend:
-        out.append({"name": "Martelo", "tone": "bull", "text": "Martelo — preço foi rejeitado no fundo (possível reversão para cima)"})
-    if upper >= 2 * body and lower <= max(body, rng * 0.1) and uptrend:
-        out.append({"name": "Estrela cadente", "tone": "bear", "text": "Estrela cadente — preço foi rejeitado no topo (possível reversão para baixo)"})
-    if body <= rng * 0.1 and not out:
-        out.append({"name": "Doji", "tone": "neutral", "text": "Doji — indecisão entre compradores e vendedores"})
-    return out

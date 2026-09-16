@@ -23,10 +23,15 @@ class ApiTests(unittest.TestCase):
         database.DB_PATH = Path(cls.tmp.name) / "test.db"
         database._initialized = False
         news.set_events([])  # sem internet: agenda vazia
-        for tf in ("15m", "5m"):
-            snap = make_snapshot(symbol="BTC-USD", timeframe=tf, n=450, seed=21)
+        for tf, freq in (("15m", "15min"), ("5m", "5min"), ("1h", "1h"), ("1d", "1D")):
+            snap = make_snapshot(symbol="BTC-USD", timeframe=tf, n=450, seed=21, freq=freq)
             market_data._cache[("BTC-USD", tf)] = snap
             snap.fetched_at = time.time() + 10**6  # não expira durante o teste
+        # Sem internet: regras do par na Binance e dólar do dia já em cache.
+        market_data._filters_cache["BTCUSDT"] = (time.time() + 10**6, {
+            "pair": "BTCUSDT", "base": "BTC", "quote": "USDT", "status": "TRADING", "tick": 0.01, "step": 0.00001,
+            "min_qty": 0.00001, "min_notional": 5.0, "oco": True})
+        market_data._fx_cache["USDBRL"] = (time.time() + 10**6, 5.4)
         cls.client = TestClient(app, headers={"X-AURUM": "1"})  # sem "with": não inicia o scanner em segundo plano
 
     @classmethod
@@ -56,6 +61,16 @@ class ApiTests(unittest.TestCase):
         start.assert_called_once()
         self.assertIn("items", data)
         self.assertEqual(self.client.put("/api/settings", json={"crypto_spot_only": "x"}).status_code, 422)
+
+    def test_mt5_status_zones_and_symbol_mapping(self):
+        status = self.client.get("/api/mt5/status").json()
+        for key in ("connected", "enabled", "server_offset_hours", "symbols", "user_zones"):
+            self.assertIn(key, status)
+        self.assertIn("count", self.client.get("/api/mt5/zones").json())
+        ok = self.client.put("/api/settings", json={"mt5_symbols": "XAUUSD=XAUUSD.pro; EURUSD=EURUSDm"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(self.client.put("/api/settings", json={"mt5_symbols": "<script>"}).status_code, 422)
+        self.assertEqual(self.client.get("/api/mt4/status").status_code, 404)  # o MT4 saiu do projeto
 
     def test_meta_and_static(self):
         meta = self.client.get("/api/meta").json()

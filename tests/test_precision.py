@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import unittest
 
-import numpy as np
 import pandas as pd
 
 from app.analysis import analyze, numeric_settings, price_decimals

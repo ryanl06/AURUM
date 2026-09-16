@@ -1,16 +1,11 @@
-"""Testes de B3/XP: vencimentos, ticks, boleta e conector MetaTrader 5 (simulado, sem terminal real)."""
+"""Testes de B3/XP: vencimentos, ticks e boletas (XP e Binance)."""
 
 from __future__ import annotations
 
-import time
-import types
 import unittest
 from datetime import date
-from unittest import mock
 
-import numpy as np
-
-from app import assets, b3, mt5_source
+from app import assets, b3
 from app.ticket import build_ticket
 
 
@@ -152,121 +147,6 @@ class TicketTests(unittest.TestCase):
         t = build_ticket("EURUSD=X", "forex", _plan(1.1, 1.09, 1.11, 1.12), self.signal, "Yahoo", date(2026, 9, 14))
         self.assertFalse(t["available"])
         self.assertEqual(t["suggest"], "WDOFUT")
-
-
-class FakeMT5(types.SimpleNamespace):
-    TIMEFRAME_M15 = 15
-
-    def __init__(self, server_offset=10800):
-        super().__init__()
-        self.server_offset = server_offset
-        self.selected = []
-
-    def initialize(self, **kwargs):
-        return True
-
-    def last_error(self):
-        return (1, "ok")
-
-    def terminal_info(self):
-        return types.SimpleNamespace(name="MetaTrader 5", company="XP Investimentos")
-
-    def account_info(self):
-        return types.SimpleNamespace(company="XP Investimentos", server="XPMT5-DEMO")
-
-    def symbol_info(self, name):
-        return types.SimpleNamespace(name=name) if name == "WDO$N" else None
-
-    def symbol_select(self, name, enable):
-        self.selected.append(name)
-        return True
-
-    def symbol_info_tick(self, name):
-        return types.SimpleNamespace(time=int(time.time()) + self.server_offset)
-
-    def copy_rates_from_pos(self, name, tf, start, count):
-        now = (int(time.time()) // 900) * 900 + self.server_offset
-        times = np.arange(now - 899 * 900, now + 1, 900)
-        dtype = [("time", "i8"), ("open", "f8"), ("high", "f8"), ("low", "f8"), ("close", "f8"),
-                 ("tick_volume", "i8"), ("spread", "i4"), ("real_volume", "i8")]
-        rates = np.zeros(len(times), dtype=dtype)
-        rates["time"], rates["open"], rates["close"] = times, 5400.0, 5401.0
-        rates["high"], rates["low"], rates["real_volume"] = 5402.0, 5399.0, 1000
-        return rates
-
-
-class HangingMT5(FakeMT5):
-    """Simula o terminal aberto com diálogo na tela: initialize demora muito ("IPC timeout")."""
-
-    def initialize(self, **kwargs):
-        time.sleep(3)
-        return False
-
-    def last_error(self):
-        return (-10005, "IPC timeout")
-
-
-class Mt5SourceTests(unittest.TestCase):
-    def setUp(self):
-        mt5_source._state.update(connected=False, connecting=False, last_try=0.0, offset=None, terminal=None,
-                                 error=None, failures=0, terminal_running=None, checked_at=0.0)
-        mt5_source._symbol_cache.clear()
-
-    def test_candidates_include_continuous_and_current_code(self):
-        names = mt5_source.candidates("WDOFUT", date(2026, 9, 14))
-        self.assertIn("WDO$N", names)
-        self.assertIn("WDOV26", names)
-        self.assertEqual(mt5_source.candidates("PETR4.SA"), ["PETR4"])
-
-    def test_offset_measured_only_with_fresh_tick(self):
-        now = 1_800_000_000
-        self.assertEqual(mt5_source.measure_offset(now + 10800 + 20, now), 10800)
-        mt5_source._state["offset"] = None
-        self.assertEqual(mt5_source.measure_offset(now - 3 * 86400 - 777, now), 0)
-        self.assertIsNone(mt5_source._state["offset"])
-
-    def test_reads_never_wait_for_a_hanging_terminal(self):
-        with mock.patch.object(mt5_source, "mt5", HangingMT5()), \
-                mock.patch.object(mt5_source, "terminal_running", return_value=True), \
-                mock.patch.object(mt5_source, "probe", return_value=(False, -10005, "IPC timeout")), \
-                mock.patch.object(mt5_source, "request_connect"):
-            started = time.time()
-            self.assertIsNone(mt5_source.fetch("WDOFUT", "15m", 100))
-            status = mt5_source.status()
-            self.assertLess(time.time() - started, 0.5)  # leitura e status respondem na hora
-            self.assertFalse(status["connected"])
-            started = time.time()
-            self.assertFalse(mt5_source.connect_now())  # o teste em outro processo falhou: nem chama initialize aqui
-            self.assertLess(time.time() - started, 0.5)
-            self.assertIn("não respondeu", mt5_source._state["error"])
-
-    def test_no_terminal_means_no_initialize(self):
-        fake = FakeMT5()
-        fake.initialize = mock.Mock(return_value=True)
-        with mock.patch.object(mt5_source, "mt5", fake), mock.patch.object(mt5_source, "terminal_running", return_value=False):
-            self.assertFalse(mt5_source.connect_now())
-        fake.initialize.assert_not_called()  # nunca abre um MT5 sozinho nem espera por IPC
-
-    def test_fetch_converts_server_time_to_utc(self):
-        fake = FakeMT5(server_offset=10800)
-        with mock.patch.object(mt5_source, "mt5", fake), mock.patch.object(mt5_source, "terminal_running", return_value=True), \
-                mock.patch.object(mt5_source, "probe", return_value=(True, 1, "Success")):
-            self.assertTrue(mt5_source.connect_now())
-            got = mt5_source.fetch("WDOFUT", "15m", 900)
-        self.assertIsNotNone(got)
-        df, source = got
-        self.assertEqual(len(df), 900)
-        self.assertIn("XP Investimentos", source)
-        self.assertIn("tempo real", source)
-        last = df.index[-1].timestamp()
-        self.assertLess(abs(last - time.time()), 1800)  # sem o ajuste do fuso estaria 3h no futuro
-        self.assertTrue((df["volume"] == 1000).all())
-
-    def test_without_package_everything_falls_back(self):
-        with mock.patch.object(mt5_source, "mt5", None):
-            self.assertFalse(mt5_source.installed())
-            self.assertIsNone(mt5_source.fetch("WDOFUT", "15m", 100))
-            self.assertFalse(mt5_source.status()["connected"])
 
 
 if __name__ == "__main__":

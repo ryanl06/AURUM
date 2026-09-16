@@ -195,7 +195,7 @@
             <div id="ticket-body"><p class="muted">Carregando…</p></div>
           </article>
           <article class="card xp-card">
-            <header class="card-head"><h2>Conexão com a XP</h2><span class="chip" id="mt5-chip">—</span></header>
+            <header class="card-head"><h2>MetaTrader 5</h2><span class="chip" id="mt5-chip">—</span></header>
             <div id="mt5-body" class="xp-body"></div>
           </article>
         </div>
@@ -527,7 +527,7 @@
                   <li>Registre em <b>Já entrei nesta operação</b> para o AURUM acompanhar a saída.</li>
                 </ol>
                 <div class="tut-callout gold"><b>Sobre a precisão dos preços:</b> sem uma plataforma de dados em tempo real, o WDO usa o dólar à vista × 1000, o WIN usa o Ibovespa e as ações da B3 chegam com ~15 min de atraso. A direção e o horário do sinal continuam valendo; o preço exato é sempre o da XP — por isso existe o campo de ajuste. Para intraday, prefira 15m ou 1h.</div>
-                <p class="small muted">Opcional: quem quiser cotações em tempo real pode ligar o MetaTrader 5 em ⚙ Configurações (a XP oferece o MT5 na área logada, em Ferramentas e Serviços). Não é necessário para usar o AURUM.</p>
+                <p class="small muted">Ouro e forex vêm do seu <b>MetaTrader 5</b> (passo MT5). Para WDO/WIN em tempo real, a XP também oferece o MT5 na área logada, em Ferramentas e Serviços.</p>
               </div>
             </article>
 
@@ -542,7 +542,7 @@
                   <li><b>Notícia forte do dólar</b> (Payroll, juros, inflação…): nada de entrada 30 min antes e depois.</li>
                 </ol>
                 <p>Stop além do fundo/topo da correção, alvo 2× o risco. O card <b>Previsão</b> mostra em que etapa o padrão está (“Rompeu a resistência… aguardando correção”, “fundo formado: entrada se fechar acima de…”).</p>
-                <div class="tut-callout gold"><b>Resultado medido em 2 anos de M15 do ouro:</b> 43 operações, fator de lucro 1,28 (compras 2,01; vendas 0,69), mas o período mais recente perdeu (fator 0,75). É pouca amostra e o ouro subiu muito no período — confirme em <b>conta demo</b> e na aba <b>Desempenho</b> antes de usar dinheiro.</div>
+                <div class="tut-callout gold"><b>Resultado medido no XAUUSD real da Hantec (MT5, abril/2023 a setembro/2026, custo 0,03%):</b> 98 operações, fator de lucro 1,14 (compras 1,18; vendas 1,09); período mais recente fator 1,28. Segurando sempre até o stop ou o alvo, o fator cai para 1,03 — a vantagem é pequena e vem mais das compras num ouro em alta. Confirme em <b>conta demo</b> e na aba <b>Desempenho</b> antes de usar dinheiro.</div>
               </div>
             </article>
 
@@ -574,17 +574,24 @@
               </div>
             </article>
 
-            <article class="tut-step card" data-step="mt4" id="passo-mt4">
-              <header><span class="tut-num">MT4</span><h3>Usar os gráficos do MetaTrader 4 (Hantec ou outra corretora)</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
+            <article class="tut-step card" data-step="mt5" id="passo-mt5">
+              <header><span class="tut-num">MT5</span><h3>Conectar o MetaTrader 5 e desenhar suas zonas</h3><label class="tut-done"><input type="checkbox"><span>Feito</span></label></header>
               <div class="tut-body">
-                <p>Com o robô <code>AURUM_Exporter</code> (pasta <code>mt4</code> do AURUM), os preços vêm da sua corretora em tempo real. Ele <b>só grava as velas em arquivo</b> — não abre nem fecha ordens.</p>
+                <p>Com o <b>MetaTrader 5</b> aberto e logado, o AURUM passa a usar os preços em tempo real da sua corretora, o histórico longo do M15 (até 80 mil candles, ~3 anos e meio), os candles semanais e mensais dela para as zonas e as especificações do ativo para calcular os <b>lotes</b> da boleta. Ele <b>só lê</b> — nunca envia ordens.</p>
                 <ol>
-                  <li>No MT4: <b>Arquivo → Abrir pasta de dados → MQL4 → Experts</b>. Copie <code>AURUM_Exporter.mq4</code> para lá.</li>
-                  <li>No painel <b>Navegador</b> do MT4, clique com o botão direito em <b>Expert Advisors → Atualizar</b> (se não aparecer, abra no MetaEditor e clique em <b>Compilar</b>).</li>
-                  <li>Arraste <b>AURUM_Exporter</b> para um gráfico. Em <b>Entradas</b>, escreva os ativos como aparecem na corretora, ex.: <code>EURUSD,GBPUSD,XAUUSD</code>.</li>
-                  <li>No AURUM: ⚙ → <b>MetaTrader 4</b> → marque <b>Usar os gráficos do MT4</b>. O status deve mostrar <b>CONECTADO</b>.</li>
+                  <li>Abra o MT5 e confirme o login. O card <b>MetaTrader 5</b> do painel mostra <b>MT5 conectado</b>, o nome do ativo na corretora (ex.: <code>XAUUSD</code> → <code>XAUUSD.m</code>), o fuso do servidor e se a conta é <b>demo</b> ou <b>real</b>.</li>
+                  <li>Se o ativo não for encontrado, informe o nome em ⚙ → <b>MetaTrader 5</b> (ex.: <code>XAUUSD=XAUUSD.pro</code>).</li>
+                  <li>Deixe o MT5 aberto enquanto usa o AURUM. Com ele fechado, o painel mostra um aviso amarelo: os preços passam a ser do Yahoo (no ouro, o futuro GC=F, dezenas de dólares acima do XAUUSD), a boleta em lotes fica em espera e o sinal não conta no <b>Desempenho</b>.</li>
                 </ol>
-                <div class="tut-callout gold"><b>Antes de depositar:</b> a Hantec Markets informa no próprio site que não é autorizada pela CVM a atender residentes no Brasil. Forex com alavancagem pode perder mais que o depositado — comece em <b>conta demo</b>.</div>
+                <div class="tut-callout">Precisão do horário: a Hantec usa UTC+3 no verão americano e UTC+2 no inverno. O AURUM converte cada candle com o fuso da época dele — o filtro de sessão e o backtest ficam no horário certo o ano todo.</div>
+                <b>Suas zonas desenhadas no MT5</b>
+                <ol>
+                  <li>No MT5: <b>Arquivo → Abrir pasta de dados → MQL5 → Indicators</b>. Copie o arquivo <code>AURUM_Zonas.mq5</code> (pasta <code>mt5</code> do AURUM).</li>
+                  <li>No <b>Navegador</b> do MT5: botão direito em <b>Indicadores → Atualizar</b>. Arraste <b>AURUM_Zonas</b> para <b>um</b> gráfico qualquer.</li>
+                  <li>Desenhe <b>linhas horizontais</b> ou <b>retângulos</b> nos seus suportes e resistências. Em <b>Descrição</b>, dê um nome se quiser (ex.: “Resistência semanal”).</li>
+                  <li>As zonas aparecem no gráfico e no plano do AURUM como <b>Sua zona</b>, com peso maior que as automáticas, e entram no método de rompimento + pullback.</li>
+                </ol>
+                <div class="tut-callout">Uma zona desenhada vale a partir do momento em que o AURUM a vê. As estatísticas do histórico continuam medindo só as zonas automáticas — assim ninguém se engana com linhas traçadas olhando o gráfico já pronto.</div>
               </div>
             </article>
 
@@ -624,6 +631,7 @@
                       <li>Comece treinando sem dinheiro; só leve para o real o que deu resultado na aba <b>Desempenho</b>.</li>
                       <li>Nunca opere sem stop, nunca aumente a mão depois de perder.</li>
                       <li>Evite "opções binárias", corretoras sem registro na CVM e promessas de lucro garantido.</li>
+                      <li><b>MetaTrader 5 com corretora estrangeira</b> (ex.: Hantec): ela informa não ser autorizada pela CVM para residentes no Brasil — você fica sem a proteção da regulação brasileira. Treine na conta demo e só deposite o que pode perder.</li>
                     </ul>
                   </div>
                 </div>
@@ -703,7 +711,7 @@
               <div class="tut-body faq">
                 <details><summary>O AURUM acerta sempre?</summary><p>Não. Nenhuma ferramenta acerta sempre. O AURUM mostra números medidos (confiança, confiabilidade, desempenho real) para você operar só onde há vantagem estatística — e com stop.</p></details>
                 <details><summary>Por que o sinal diz AGUARDE se as condições estão todas verdes?</summary><p>Porque a regra pode estar <b>bloqueada</b> (perdeu no histórico desse ativo), a tendência já andou demais (entrada tardia) ou o candle ainda não fechou. Veja o texto do card.</p></details>
-                <details><summary>De onde vêm os preços?</summary><p>Cripto: Binance em tempo real. Forex, ouro, ações: Yahoo Finance (ações da B3 com atraso de ~15 min). A fonte aparece ao lado do nome do ativo.</p></details>
+                <details><summary>De onde vêm os preços?</summary><p>Ouro e forex: do seu MetaTrader 5, em tempo real (com o MT5 fechado, Yahoo Finance e um aviso amarelo). Cripto: Binance em tempo real. Ações da B3: Yahoo Finance, com atraso de ~15 min. A fonte aparece ao lado do nome do ativo.</p></details>
                 <details><summary>O AURUM executa ordens na minha corretora?</summary><p>Não. Ele analisa e avisa; a ordem é sempre sua, na plataforma da corretora.</p></details>
                 <details><summary>Onde operar com segurança?</summary><p>Prefira corretoras autorizadas pela CVM e participantes da B3 (confira no site da CVM). Para dólar, o caminho regulado no Brasil é o mini dólar (WDO) na B3. Evite "opções binárias" e promessas de lucro garantido.</p></details>
                 <details><summary>Posso mudar as regras?</summary><p>Em ⚙ você liga/desliga os filtros (tempo maior, sessão, bloqueio por histórico) e ajusta stop, alvo, custo e risco. O backtest e a confiança se recalculam na hora.</p></details>
@@ -789,7 +797,7 @@
     <footer class="disclaimer" id="disclaimer">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>
       <span id="disclaimer-text">ISTO NÃO PREVÊ RESULTADOS. USE STOP LOSS. NÃO APOSTE O QUE NÃO PODE PERDER.</span>
-      <span class="disclaimer-sub">Não é recomendação de investimento. Dados do Yahoo Finance (ações da B3 podem ter atraso de ~15 min).</span>
+      <span class="disclaimer-sub">Não é recomendação de investimento. Preços do MetaTrader 5, da Binance e do Yahoo Finance (ações da B3 com atraso de ~15 min).</span>
     </footer>
   </div>
 
@@ -848,11 +856,11 @@
         <label>Vela gigante no ouro (pontos) <small>1.500 = US$ 15 · não entra nela, espera correção</small><input name="big_candle_points" type="number" step="50" min="0"></label>
         <label>Bloqueio por notícia forte (minutos antes e depois)<input name="news_guard_minutes" type="number" step="5" min="0" max="240"></label>
       </div>
-      <h3 class="form-section">MetaTrader 4 (Hantec ou outra corretora) <span class="tg-status" id="mt4-status"></span></h3>
-      <p class="hint">Instale o robô <code>mt4/AURUM_Exporter.mq4</code> no seu MT4 (passo a passo na aba Tutorial). Ele só grava as velas em arquivo — não envia ordens — e o AURUM passa a usar os preços da sua corretora.</p>
+      <h3 class="form-section">MetaTrader 5 <span class="tg-status" id="mt5-settings-status"></span></h3>
+      <p class="hint">Com o MT5 aberto e logado, preços, histórico, lotes da boleta e as zonas que você desenha vêm dele. O AURUM só lê: nunca envia ordens.</p>
       <div class="form-grid">
-        <label class="check"><input type="checkbox" name="use_mt4"><span><b>Usar os gráficos do MT4</b> quando o robô estiver ativo</span></label>
-        <label>Sufixo dos ativos na corretora <small>(ex.: .r — deixe vazio se for EURUSD)</small><input name="mt4_suffix" type="text" maxlength="10" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" name="use_mt5"><span><b>Usar MetaTrader 5</b></span></label>
+        <label>Nomes dos ativos na corretora <small>só se o AURUM não achar sozinho · ex.: XAUUSD=XAUUSD.pro; EURUSD=EURUSDm</small><input name="mt5_symbols" type="text" maxlength="500" autocomplete="off"></label>
       </div>
       <h3 class="form-section">Risco</h3>
       <div class="form-grid">
@@ -875,7 +883,6 @@
       </div>
       <h3 class="form-section">Filtros validados no histórico</h3>
       <div class="filter-list">
-        <label class="check"><input type="checkbox" name="use_mt5"><span><b>Usar MetaTrader 5</b> — se o MT5 da XP estiver aberto, os preços vêm dele em tempo real (WDO, WIN, ações)</span></label>
         <label class="check"><input type="checkbox" name="htf_filter"><span><b>Tempo maior a favor</b> — regras de tendência só disparam com o gráfico maior na mesma direção</span></label>
         <label class="check"><input type="checkbox" name="session_filter"><span><b>Sessão Londres/NY</b> — forex e ouro intraday só das 04h às 14h de Brasília</span></label>
         <label class="check"><input type="checkbox" name="quality_gate"><span><b>Bloquear regras ruins</b> — não mandar ENTRAR com regra que perdeu dinheiro no histórico do ativo</span></label>

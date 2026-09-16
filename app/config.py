@@ -61,9 +61,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "session_filter": "1",  # forex/ouro intraday: só sessões de Londres e Nova York
     "quality_gate": "1",  # bloqueia regras que perderam dinheiro no histórico do ativo
     "crypto_spot_only": "1",  # cripto na Spot: só sinais de COMPRA (vender exige ter a moeda na carteira)
-    "use_mt5": "0",  # opcional e desligado: ler cotações do MetaTrader 5 aberto no PC
-    "use_mt4": "0",  # opcional: ler as velas exportadas pelo robô AURUM_Exporter no MetaTrader 4 (ex.: Hantec)
-    "mt4_suffix": "",  # sufixo dos ativos na corretora, se houver (ex.: ".r" em EURUSD.r)
+    "use_mt5": "1",  # preços, histórico, especificações e zonas desenhadas vêm do MetaTrader 5 aberto no PC
+    "mt5_symbols": "",  # mapeamento manual se o AURUM não achar o nome na corretora (ex.: XAUUSD=XAUUSD.pro)
     "news_guard": "1",  # não manda ENTRAR de 30 min antes a 30 min depois de notícia de alto impacto
     "risk_guard": "1",  # pausa as entradas quando algum limite diário é atingido
     "max_trades_day": "3",

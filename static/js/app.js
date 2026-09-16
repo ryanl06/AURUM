@@ -487,11 +487,11 @@ async function openSettings() {
   form.querySelectorAll(".tg-feedback").forEach((el) => el.remove());
   renderTelegramStatus(form);
   $("settings-modal").showModal();
-  api.mt4Status().then((m) => {
-    const el = $("mt4-status");
-    el.textContent = m.connected ? `CONECTADO · ${m.broker || "MT4"} · ${m.symbols.length} ativo(s)` : m.files ? "ROBÔ PARADO" : "NÃO INSTALADO";
-    el.classList.toggle("on", m.connected);
-    el.title = m.folder;
+  api.mt5Status().then((m) => {
+    const el = $("mt5-settings-status");
+    el.textContent = !m.enabled ? "DESLIGADO" : m.connected ? `CONECTADO · ${(m.terminal || {}).company || "MT5"}` : "DESCONECTADO";
+    el.classList.toggle("on", Boolean(m.enabled && m.connected));
+    el.title = m.error || "";
   }).catch(() => {});
 }
 

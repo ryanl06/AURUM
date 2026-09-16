@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from datetime import date
 
-from . import b3
+from . import b3, ticket_mt5
 from .explain import fmt_price
 
 FEE_RATE = 0.001  # Binance Spot: 0,1% por ordem (sem desconto de BNB)
@@ -157,7 +157,12 @@ def _binance_ticket(plan: dict, signal: dict, position: dict | None, info: dict,
 
 def build_ticket(symbol: str, kind: str, plan: dict, signal: dict, source: str, today: date,
                  position: dict | None = None, asset_name: str | None = None, timeframe: str = "15m",
-                 binance: dict | None = None, brl_per_usd: float | None = None) -> dict:
+                 binance: dict | None = None, brl_per_usd: float | None = None, mt5: dict | None = None,
+                 mt5_waiting: str | None = None) -> dict:
+    if mt5 and kind != "crypto":  # MetaTrader 5 conectado: boleta com lotes e ticks reais da corretora
+        return ticket_mt5.build(plan, signal, position, mt5, timeframe)
+    if mt5_waiting and kind != "crypto":  # MT5 ligado, mas sem os preços dele nesta análise: não mistura fontes
+        return {"available": False, "reason": mt5_waiting, "suggest": None}
     if kind == "forex":
         return {"available": False, "reason": "A XP não oferece forex à vista para pessoa física. Para operar dólar "
                                                "pela XP, use o mini dólar (WDO) na B3.", "suggest": "WDOFUT"}

@@ -71,16 +71,20 @@ def _operable(setups: list, cfg: dict) -> list:
 
 def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: datetime | None = None,
             htf_snap: Snapshot | None = None, risk: dict | None = None, events: list[dict] | None = None,
-            exchange: dict | None = None, daily_snap: Snapshot | None = None) -> dict:
+            exchange: dict | None = None, daily_snap: Snapshot | None = None, zone_inputs: dict | None = None) -> dict:
     """`exchange` traz dados da corretora para a boleta (ex.: {"binance": filtros, "brl_per_usd": 5.4}).
 
     `daily_snap` (histórico diário) alimenta as zonas de suporte/resistência do mensal, semanal e diário.
+    `zone_inputs` = {"native": {"W": semanal, "M": mensal} da corretora, "user": zonas desenhadas no MT5}.
     """
     tf = snap.timeframe
     daily = tf.seconds >= 86400
     now = now or datetime.now(timezone.utc)
     info = assets.asset_info(snap.symbol, snap.name)
     kind = info["kind"]
+    mt5_spec = (exchange or {}).get("mt5")
+    if mt5_spec and snap.provider == "mt5":  # preços da corretora: nome e código do ativo como aparecem no MT5
+        info = {**info, "name": assets.SPOT_NAMES.get(snap.symbol, info["name"]), "broker_symbol": mt5_spec["name"]}
     market = assets.market_status(snap.symbol, now)
     cfg = numeric_settings(settings, tf.seconds, kind)
 
@@ -110,10 +114,13 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
 
     # Zonas principais do mensal/semanal/diário (modo padrão) e/ou as regras de indicadores.
     zone_daily = daily_snap.candles if daily_snap is not None else (snap.candles if daily else None)
-    feat = _cached_zones(snap.symbol, tf, df, market["open"], now, zone_daily) if cfg["mode"] != "indicadores" else None
+    zone_inputs = zone_inputs or {}
+    feat = (_cached_zones(snap.symbol, tf, df, market["open"], now, zone_daily, zone_inputs.get("native"),
+                          zone_inputs.get("user") or []) if cfg["mode"] != "indicadores" else None)
     # Rompimento de zona → correção com fundo/topo → novo rompimento (vela gigante não vale como entrada).
-    big_limit = zones.big_candle_limit(snap.symbol, df["atr"], cfg["big_points"])
-    big_label = (f"Vela de entrada até {cfg['big_points']:,.0f} pontos (US$ {cfg['big_points'] * zones.GOLD_POINT:,.2f})"
+    point = mt5_spec["point"] if mt5_spec and snap.provider == "mt5" else None
+    big_limit = zones.big_candle_limit(snap.symbol, df["atr"], cfg["big_points"], point)
+    big_label = (f"Vela de entrada até {cfg['big_points']:,.0f} pontos (US$ {cfg['big_points'] * (point or zones.GOLD_POINT):,.2f})"
                  .replace(",", "X").replace(".", ",").replace("X", ".")
                  if snap.symbol in zones.GOLD_SYMBOLS and cfg["big_points"] > 0 else "Vela de entrada menor que 3 ATR")
     pb = zones.pullback_breakouts(df, feat, big_limit) if feat is not None and cfg["mode"] in ("pullback", "ambos") else None
@@ -141,7 +148,7 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     row = df.iloc[live_i]
     closed_row = df.iloc[closed_i]
     price = float(row["close"])
-    decimals = price_decimals(price, kind)
+    decimals = mt5_spec["digits"] if mt5_spec else price_decimals(price, kind)  # casas decimais da própria corretora
     live_close_at = last_start + timedelta(seconds=tf.seconds)
     stale = market["open"] and now - live_close_at > timedelta(seconds=tf.seconds * 3)
 
@@ -272,6 +279,10 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
         else:
             plan = preview_plan if side == default_side else trade_plan(price, atr_now, side, cfg, decimals, snap.symbol, kind)
 
+    source_warning = _source_warning(snap, exchange)
+    if source_warning:
+        signal = {**signal, "warnings": [source_warning, *(signal.get("warnings") or [])]}
+
     extra_reads = _pullback_reads(pb, live_i, df, decimals) + _context_reads(
         df, closed_i, live_i, bull_div, bear_div, candle_list, levels, htf_view, decimals, session_applies, strat_ctx,
         structure)
@@ -283,6 +294,10 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     forecast_view["consensus"] = patterns.consensus(
         score_live, probability["up_rate"] if probability and probability["count"] >= 30 else None, analog,
         htf_view["bias"] if htf_view else None, structure)
+    ticket = build_ticket(snap.symbol, kind, plan, signal, snap.source, now.astimezone(LOCAL_TZ).date(), position,
+                          info["name"], tf.key, **(exchange or {}))
+    if mt5_spec and snap.provider == "mt5" and ticket.get("kind") == "mt5":
+        plan = _broker_units(plan, mt5_spec, ticket)
     return {
         "symbol": snap.symbol,
         "asset": info,
@@ -291,6 +306,8 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
         "data_time": last_start.astimezone(LOCAL_TZ).isoformat(),
         "fetched_at": datetime.fromtimestamp(snap.fetched_at, LOCAL_TZ).isoformat(),
         "data_source": snap.source,
+        "data_provider": snap.provider,
+        "source_warning": source_warning,
         "decimals": decimals,
         "price": num(price, decimals),
         "change_pct": num(_change_pct(df, daily), 2),
@@ -335,8 +352,7 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
         },
         "indicators": indicator_views(df, live_i, decimals, volume_ok),
         "plan": {k: v for k, v in plan.items() if k != "stop_dist"},
-        "ticket": build_ticket(snap.symbol, kind, plan, signal, snap.source, now.astimezone(LOCAL_TZ).date(), position,
-                               info["name"], tf.key, **(exchange or {})),
+        "ticket": ticket,
         "setups": setup_views,
         "backtest": bt,
         "calibration": calib,
@@ -349,32 +365,100 @@ def analyze(snap: Snapshot, settings: dict, position: dict | None = None, now: d
     }
 
 
-_zone_cache: dict[tuple[str, str], tuple[tuple, pd.DataFrame | None, tuple | None]] = {}
+def _broker_units(plan: dict, spec: dict, ticket: dict) -> dict:
+    """Com o MT5: distâncias em PONTOS da corretora (como no MT5: 1.500 pontos = US$ 15 no ouro) e os lotes da boleta,
+    que usam o saldo real da conta — o plano e a boleta mostram os mesmos números."""
+    point = spec["point"] or spec["tick_size"]
+    if not point:
+        return plan
+    stop = abs(plan["entry"] - plan["stop"]) / point
+    per_point = spec["tick_value_loss"] / (spec["tick_size"] or point) * point
+    units = (ticket.get("quantity") or 0) * (spec.get("contract_size") or 0)
+    return {**plan, "quantity": num(units, 4), "notional": num(units * plan["entry"], 2),
+            "risk_amount": ticket.get("risk_money", plan["risk_amount"]), "pips": {
+        "size": point, "stop": round(stop), "target1": round(stop), "target2": round(stop * plan["reward_ratio"]),
+        "pip_value_per_lot": round(per_point, 4), "lots": ticket.get("quantity"), "approx": False, "label": "pontos",
+        "unit": f"lote ({spec['contract_size']:g} unidades)", "currency": spec.get("account_currency") or "USD",
+    }}
 
 
-def _cached_zones(symbol, tf, df, market_open, now, daily_df) -> pd.DataFrame | None:
-    """Zonas dos candles fechados ficam em cache; a cada atualização só o candle em formação é recalculado."""
+def _source_warning(snap: Snapshot, exchange: dict | None) -> str | None:
+    """MT5 ligado, mas estes candles vieram de outra fonte (MT5 fechado): preços podem não bater com a corretora."""
+    if not (exchange or {}).get("mt5_waiting") or snap.provider == "mt5":
+        return None
+    detail = " (no ouro, o Yahoo usa o futuro GC=F, dezenas de dólares acima do XAUUSD)" if snap.symbol == "GC=F" else ""
+    return (f"Preços do {snap.source}, não do seu MetaTrader 5{detail}. Confira entrada, stop e alvo no MT5 antes de "
+            "operar; sinais assim não entram no acompanhamento de desempenho.")
+
+
+_zone_cache: dict[tuple[str, str], dict] = {}
+
+
+def _cached_zones(symbol, tf, df, market_open, now, daily_df, native=None, user=()) -> pd.DataFrame | None:
+    """Zonas dos candles fechados ficam em cache; a cada atualização só o candle em formação é recalculado.
+    `native` = semanal/mensal da corretora; `user` = zonas desenhadas no MT5 (valem a partir de quando foram vistas).
+
+    Candle novo fechado com o mesmo diário/semanal/mensal: só os candles novos são calculados e juntados ao cache
+    (cada linha depende só dela, do fechamento anterior e das zonas conhecidas no seu horário). Com 80 mil candles
+    do MT5 isso evita recalcular ~3 s a cada 15 min."""
     if daily_df is None or df.empty:
         return None
     last_start = df.index[-1].to_pydatetime()
     closed_n = len(df) - 1 if market_open and now < last_start + timedelta(seconds=tf.seconds) else len(df)
-    key = (df.index[closed_n - 1], closed_n, float(df["close"].iat[closed_n - 1]), daily_df.index[-1], len(daily_df),
-           float(daily_df["close"].iat[-1]))
+    if closed_n < 2:
+        return None
+    inputs = (daily_df.index[-1], len(daily_df), float(daily_df["close"].iat[-1]),
+              tuple((k, v.index[-1], len(v)) for k, v in sorted((native or {}).items())),
+              tuple((u.low, u.high, u.since) for u in user))
+    last_closed, last_close = df.index[closed_n - 1], float(df["close"].iat[closed_n - 1])
     hit = _zone_cache.get((symbol, tf.key))
-    if hit and hit[0] == key:
-        closed_feat, prepared = hit[1], hit[2]
+    if hit and hit["inputs"] == inputs:
+        prepared = hit["prepared"]
+        closed_feat = hit["feat"]
+        if closed_feat is not None and (hit["last"], hit["close"], hit["first"]) != (last_closed, last_close, df.index[0]):
+            closed_feat = _extend_zones(hit, df, closed_n, tf, prepared, user)
     else:
-        prepared = zones.prepare(daily_df)
-        closed_feat = zones.zone_features(df.iloc[:closed_n], tf.seconds, None, prepared) if prepared else None
-        _zone_cache[(symbol, tf.key)] = (key, closed_feat, prepared)
+        prepared = zones.prepare(daily_df, native)
+        closed_feat = None
+    if closed_feat is None and prepared:
+        closed_feat = zones.zone_features(df.iloc[:closed_n], tf.seconds, None, prepared, list(user))
+    _zone_cache[(symbol, tf.key)] = {"inputs": inputs, "prepared": prepared, "feat": closed_feat, "last": last_closed,
+                                     "close": last_close, "first": df.index[0]}
     if closed_feat is None or closed_n == len(df):
         return closed_feat
-    live = zones.zone_features(df.iloc[closed_n - 1:], tf.seconds, None, prepared)  # candle anterior dá o fechamento prévio
-    head, tail = closed_feat.copy(deep=False), live.iloc[-1:].copy(deep=False)
+    live = zones.zone_features(df.iloc[closed_n - 1:], tf.seconds, None, prepared, list(user))  # anterior dá o fechamento prévio
+    return _join_features(closed_feat, live.iloc[-1:], live.attrs.get("zones_now"))
+
+
+def _join_features(head: pd.DataFrame, tail: pd.DataFrame, zones_now) -> pd.DataFrame:
+    head, tail = head.copy(deep=False), tail.copy(deep=False)
     head.attrs, tail.attrs = {}, {}  # o pandas compara attrs ao concatenar (e a zona tem arrays)
     out = pd.concat([head, tail])
-    out.attrs["zones_now"] = live.attrs.get("zones_now")
+    # Rótulos: o trecho novo pode vir só com vazios (tipo object); mantém o tipo do histórico (vazio = nan).
+    out = out.astype({c: head[c].dtype for c in head.columns if c.endswith("_label") and out[c].dtype != head[c].dtype})
+    out.attrs["zones_now"] = zones_now
     return out
+
+
+def _extend_zones(hit: dict, df: pd.DataFrame, closed_n: int, tf, prepared, user) -> pd.DataFrame | None:
+    """Acrescenta ao cache só os candles fechados novos. None = histórico mudou por dentro: recalcula tudo."""
+    old = hit["feat"]
+    try:
+        pos = df.index.get_loc(hit["last"])
+    except KeyError:
+        return None
+    if not isinstance(pos, (int, np.integer)) or pos >= closed_n or float(df["close"].iat[pos]) != hit["close"]:
+        return None
+    closed = df.iloc[:closed_n]
+    if not closed.index[:pos + 1].isin(old.index).all():
+        return None  # buracos preenchidos no meio do histórico
+    kept = old.loc[closed.index[0]:hit["last"]]
+    if pos + 1 == closed_n:
+        fresh = kept.copy(deep=False)
+        fresh.attrs = dict(old.attrs)
+        return fresh
+    new = zones.zone_features(closed.iloc[pos:], tf.seconds, None, prepared, list(user))
+    return _join_features(kept, new.iloc[1:], new.attrs.get("zones_now"))
 
 
 def _zone_approach(setups, setup_views, zone_view, price, atr, decimals) -> list[tuple]:
@@ -537,12 +621,16 @@ def _context_reads(df, closed_i, live_i, bull_div, bear_div, candle_list, levels
 _analog_cache: dict[tuple, dict | None] = {}
 
 
+ANALOG_BARS = 20000  # os vizinhos vêm dos últimos 8 mil candles: 20 mil bastam e poupam ~1 s com o histórico do MT5
+
+
 def _cached_analog(symbol: str, timeframe: str, closed_df: pd.DataFrame, closed_i: int) -> dict | None:
     """Os análogos só mudam quando fecha um candle novo: calcula uma vez por candle."""
     key = (symbol, timeframe, closed_df.index[closed_i], len(closed_df))
     if key not in _analog_cache:
         try:
-            _analog_cache[key] = patterns.analog_forecast(closed_df, closed_i)
+            recent = closed_df.iloc[max(0, closed_i + 1 - ANALOG_BARS): closed_i + 1]
+            _analog_cache[key] = patterns.analog_forecast(recent, len(recent) - 1)
         except Exception:  # dados insuficientes ou degenerados: a análise segue sem análogos
             _analog_cache[key] = None
         if len(_analog_cache) > 200:

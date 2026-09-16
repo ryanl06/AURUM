@@ -62,6 +62,8 @@ CATALOG: list[Asset] = [
     Asset("^GSPC", "S&P 500", "index", "USD"),
 ]
 _BY_SYMBOL = {a.symbol: a for a in CATALOG}
+# Com o MetaTrader 5 os preços são do ativo à vista da corretora (XAUUSD), não do futuro do Yahoo (GC=F).
+SPOT_NAMES = {"GC=F": "Ouro (XAU/USD)", "SI=F": "Prata (XAG/USD)", "CL=F": "Petróleo WTI"}
 
 # Apelidos em português e formatos de corretora que o Yahoo não entende.
 ALIASES = {

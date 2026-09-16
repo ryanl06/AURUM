@@ -1,7 +1,10 @@
 """Busca de candles com cache em memória.
 
-Cripto vem da Binance (tempo real, com atualização incremental dos últimos candles).
-Todo o resto — e qualquer cripto que a Binance não tenha — vem do Yahoo Finance.
+Com o MetaTrader 5 ligado, tudo que a corretora tem (ouro, forex, índices, B3) vem dele, em tempo real e com
+histórico longo. Cripto vem da Binance (onde é operada). O resto — ou tudo, sem MT5 — vem do Yahoo Finance.
+
+Fontes nunca se misturam em silêncio: o ouro do Yahoo é o futuro GC=F, dezenas de dólares acima do XAUUSD da
+corretora. Com o MT5 aberto, esperamos a conexão e mantemos os candles dele; o Yahoo só entra com o MT5 fechado.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import httpx
 import pandas as pd
 import yfinance as yf
 
-from . import b3, mt4_source, mt5_source
+from . import b3, mt5_source
 from .assets import classify
 from .config import TIMEFRAMES, Timeframe
 
@@ -26,10 +29,10 @@ BINANCE_URLS = ("https://data-api.binance.vision/api/v3/klines", "https://api.bi
 SOURCE_BINANCE = "Binance (tempo real)"
 SOURCE_YAHOO = "Yahoo Finance"
 USE_MT5 = False  # ajustado pelas configurações (service.py); desligado por padrão
-USE_MT4 = False  # idem: velas exportadas pelo MetaTrader 4 (mt4/AURUM_Exporter.mq4)
-MT4_SUFFIX = ""  # sufixo dos ativos na corretora (ex.: ".r")
 LOCK_TIMEOUT = 25  # segundos esperando outra busca do mesmo ativo antes de desistir
 YAHOO_TIMEOUT = 20
+MT5_WAIT = 15  # AURUM recém-ligado: espera a conexão com o MT5 em andamento (teste em outro processo + login)
+MT5_LIVE_WAIT = 3  # atualização ao vivo do gráfico: espera curta
 
 
 class MarketDataError(RuntimeError):
@@ -37,11 +40,37 @@ class MarketDataError(RuntimeError):
 
 
 def configure(settings: dict) -> None:
-    """Liga/desliga as fontes opcionais (MetaTrader 4/5) conforme as configurações."""
-    global USE_MT5, USE_MT4, MT4_SUFFIX
+    """Liga/desliga o MetaTrader 5 e aplica o mapeamento manual de nomes de ativos conforme as configurações."""
+    global USE_MT5
     USE_MT5 = settings.get("use_mt5", "0") == "1"
-    USE_MT4 = settings.get("use_mt4", "0") == "1"
-    MT4_SUFFIX = (settings.get("mt4_suffix") or "").strip()
+    mt5_source.set_overrides(settings.get("mt5_symbols", ""))
+
+
+def mt5_applies(symbol: str) -> bool:
+    """MT5 é a fonte preferida, menos para cripto (operada na Binance Spot, com os preços da Binance)."""
+    return USE_MT5 and mt5_source.installed() and classify(symbol) != "crypto"
+
+
+_native_cache: dict[str, tuple[float, dict]] = {}
+NATIVE_TTL = 600
+
+
+def native_htf(symbol: str) -> dict | None:
+    """Candles semanais e mensais da própria corretora (MT5) para as zonas; None sem MT5."""
+    if not mt5_applies(symbol):
+        return None
+    cached = _native_cache.get(symbol)
+    if cached and time.time() - cached[0] < NATIVE_TTL:
+        return cached[1]
+    frames = {}
+    for code, timeframe in (("W", "1w"), ("M", "1mo")):
+        got = mt5_source.fetch(symbol, timeframe)
+        if got is not None and len(got[0]) >= 5:
+            frames[code] = got[0]
+    if not frames:
+        return None
+    _native_cache[symbol] = (time.time(), frames)
+    return frames
 
 
 @dataclass
@@ -52,6 +81,13 @@ class Snapshot:
     name: str | None
     fetched_at: float
     source: str = SOURCE_YAHOO
+
+    @property
+    def provider(self) -> str:
+        """mt5 | binance | yahoo — para nunca misturar preços de fontes diferentes na mesma análise."""
+        if self.source.startswith("MetaTrader"):
+            return "mt5"
+        return "binance" if self.source == SOURCE_BINANCE else "yahoo"
 
 
 _cache: dict[tuple[str, str], Snapshot] = {}
@@ -72,7 +108,7 @@ def get_candles(symbol: str, timeframe: str, force: bool = False) -> Snapshot:
     tf = TIMEFRAMES[timeframe]
     key = (symbol, timeframe)
     cached = _cache.get(key)
-    if cached and not force and time.time() - cached.fetched_at < tf.cache_ttl:
+    if cached and not force and _fresh(cached, tf):
         return cached
 
     lock = _lock_for(key)
@@ -87,23 +123,29 @@ def get_candles(symbol: str, timeframe: str, force: bool = False) -> Snapshot:
         lock.release()
 
 
+def _fresh(snap: Snapshot, tf: Timeframe) -> bool:
+    if time.time() - snap.fetched_at >= tf.cache_ttl:
+        return False
+    # Guardado de uma fonte pública enquanto o MT5 conectava: troca pelos candles da corretora assim que der.
+    return not (snap.provider != "mt5" and mt5_applies(snap.symbol) and mt5_source.connected())
+
+
 def _fetch_locked(symbol: str, timeframe: str, tf: Timeframe, key: tuple[str, str], force: bool) -> Snapshot:
     cached = _cache.get(key)  # outra thread pode ter atualizado enquanto esperávamos
-    if cached and not force and time.time() - cached.fetched_at < tf.cache_ttl:
+    if cached and not force and _fresh(cached, tf):
         return cached
 
     df, source = None, SOURCE_YAHOO
-    if USE_MT4:  # arquivos do robô AURUM_Exporter no MetaTrader 4 (ex.: Hantec)
-        got = mt4_source.fetch(symbol, timeframe, MT4_SUFFIX)
-        if got is not None and len(got[0]) >= 60:
-            df, source = got
-    if df is None and USE_MT5 and mt5_source.installed():
+    if mt5_applies(symbol):
         try:
-            got = mt5_source.fetch(symbol, timeframe, tf.binance_bars)
-            if got is not None and len(got[0]) >= 60:
-                df, source = got
+            if mt5_source.wait_ready(MT5_WAIT):
+                got = mt5_source.fetch(symbol, timeframe)  # histórico longo da corretora (ver HISTORY_BARS)
+                if got is not None and len(got[0]) >= 60:
+                    df, source = got
         except Exception as exc:  # terminal fechado no meio da leitura etc.
             log.info("MetaTrader 5 indisponível para %s: %s", symbol, exc)
+        if df is None and cached is not None and cached.provider == "mt5" and mt5_source.expected():
+            return cached  # MT5 aberto mas sem responder agora: mantém os candles da corretora (a análise marca atraso)
 
     pair = binance_pair(symbol)
     if df is None and symbol in b3.FUTURES:
@@ -301,13 +343,12 @@ def recent_minutes(symbol: str) -> tuple[pd.DataFrame, str]:
         if cached and time.time() - cached[0] < LIVE_TTL:
             return cached[1], cached[2]
         df, source = None, SOURCE_YAHOO
-        got = mt4_source.fetch(symbol, "1m", MT4_SUFFIX) if USE_MT4 else None
-        if got is not None:
-            df, source = got
-        elif USE_MT5 and mt5_source.installed():
-            got = mt5_source.fetch(symbol, "1m", 600)
+        if mt5_applies(symbol):
+            got = mt5_source.fetch(symbol, "1m", 600) if mt5_source.wait_ready(MT5_LIVE_WAIT) else None
             if got is not None:
                 df, source = got
+            elif cached and cached[2].startswith("MetaTrader") and mt5_source.expected():
+                return cached[1], cached[2]  # MT5 aberto sem responder agora: não troca pelo Yahoo (outro preço)
         pair = binance_pair(symbol)
         if df is None and pair and pair not in _binance_unsupported:
             try:

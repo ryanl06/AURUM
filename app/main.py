@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from datetime import datetime, timezone
 
-from . import __version__, assets, market_data, mt4_source, mt5_source, news, scaling
+from . import __version__, assets, market_data, mt5_source, news, scaling, user_zones
 from . import database as db
 from .config import DEFAULT_SETTINGS, DEFAULT_TIMEFRAME, DISCLAIMER, FOREX_MAJORS, STATIC_DIR, TIMEFRAMES
 from .market_data import MarketDataError, get_candles, search_remote
@@ -38,6 +38,10 @@ for noisy in ("httpx", "yfinance", "peewee"):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    settings = db.get_settings()
+    market_data.configure(settings)
+    if settings.get("use_mt5", "0") == "1":
+        mt5_source.request_connect(force=True)  # conecta já na largada: a primeira análise não cai no Yahoo
     scanner.start()
     yield
     scanner.stop()
@@ -404,20 +408,24 @@ def put_settings(values: dict[str, str]):
             except ValueError:
                 raise HTTPException(422, f"Valor inválido para {key}.")
     for key in ("htf_filter", "session_filter", "quality_gate", "telegram_enabled", "telegram_only_signals", "use_mt5",
-                "news_guard", "risk_guard", "crypto_spot_only", "use_mt4"):
+                "news_guard", "risk_guard", "crypto_spot_only"):
         if key in clean and clean[key] not in ("0", "1"):
             raise HTTPException(422, f"Valor inválido para {key}.")
     if "strategy_mode" in clean and clean["strategy_mode"] not in ("pullback", "zonas", "indicadores", "ambos"):
         raise HTTPException(422, "Estratégia inválida.")
-    if "mt4_suffix" in clean:
-        clean["mt4_suffix"] = clean["mt4_suffix"].strip()
-        if not re.fullmatch(r"[A-Za-z0-9._#-]{0,10}", clean["mt4_suffix"]):
-            raise HTTPException(422, "Sufixo do MT4 inválido (use só letras, números, ponto ou traço).")
+    if "mt5_symbols" in clean:
+        clean["mt5_symbols"] = clean["mt5_symbols"].strip()
+        if len(clean["mt5_symbols"]) > 500 or not re.fullmatch(r"[A-Za-z0-9._#$@^=+\-;,\s]*", clean["mt5_symbols"]):
+            raise HTTPException(422, "Mapeamento de ativos do MT5 inválido. Use o formato XAUUSD=XAUUSD.m; EURUSD=EURUSDm")
     if "max_stop_pct" in clean and float(clean["max_stop_pct"]) > 3:
         raise HTTPException(422, "O stop loss máximo é 3% (regra obrigatória de proteção).")
     if "scan_timeframe" in clean:
         _tf(clean["scan_timeframe"])
     db.update_settings(clean)
+    if clean.get("use_mt5") == "1" or "mt5_symbols" in clean:
+        market_data.configure(db.get_settings())
+        mt5_source.request_connect(force=True)
+        market_data._cache.clear()  # próxima análise já usa a fonte nova
     scanner.trigger()
     return get_settings()
 
@@ -458,16 +466,20 @@ def telegram_test(body: TelegramIn | None = None):
     return {"ok": ok, "detail": detail}
 
 
-@app.get("/api/mt4/status")
-def mt4_status():
-    enabled = db.get_settings().get("use_mt4", "0") == "1"
-    return {**mt4_source.status(), "enabled": enabled}
-
-
 @app.get("/api/mt5/status")
 def mt5_status():
-    enabled = db.get_settings().get("use_mt5", "0") == "1"
-    return {**mt5_source.status(enabled), "enabled": enabled}
+    settings = db.get_settings()
+    enabled = settings.get("use_mt5", "0") == "1"
+    market_data.configure(settings)
+    zones_info = user_zones.summary()
+    return {**mt5_source.status(enabled), "enabled": enabled,
+            "user_zones": {k: zones_info[k] for k in ("exists", "active", "updated_at", "count", "by_symbol", "file")}}
+
+
+@app.get("/api/mt5/zones")
+def mt5_zones():
+    """Zonas desenhadas no MT5 (linhas horizontais e retângulos) lidas do indicador AURUM_Zonas."""
+    return user_zones.summary()
 
 
 @app.post("/api/mt5/reconnect")

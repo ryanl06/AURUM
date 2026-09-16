@@ -31,7 +31,6 @@ MIN_WEIGHT = 2  # zona principal: um pivô semanal/mensal ou pelo menos dois di�
 TOUCH_ATR = 1.0  # até 1 ATR do gráfico de entrada além da borda ainda conta como toque
 BREAK_ATR = 0.1  # rompimento: fechar pelo menos 0,1 ATR além da borda
 STOP_ATR = 0.25  # stop fica 0,25 ATR além da borda oposta da zona
-MIN_STOP_ATR = 0.5  # stop nunca mais curto que 0,5 ATR (ruído)
 
 
 @dataclass
@@ -52,8 +51,15 @@ class Zones:
 EMPTY = Zones(np.array([]), np.array([]), np.array([]), [])
 
 
-def _periods(daily: pd.DataFrame, code: str) -> pd.DataFrame:
+def _periods(daily: pd.DataFrame, code: str, native: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Candles do tempo gráfico `code`. Com `native` (semanal/mensal da própria corretora, via MT5) usa os candles
+    reais; o fim de cada um é o início do seguinte, então nada é conhecido antes de fechar."""
     ohlc = {"open": "first", "high": "max", "low": "min", "close": "last"}
+    if native is not None and len(native) >= 5:
+        frame = native[["open", "high", "low", "close"]].copy()
+        step = pd.DateOffset(weeks=1) if code == "W" else pd.DateOffset(months=1)
+        frame["end"] = list(frame.index[1:]) + [frame.index[-1] + step]
+        return frame
     if code == "D":
         frame = daily[["open", "high", "low", "close"]].copy()
         frame["end"] = frame.index + pd.Timedelta(days=1)
@@ -67,11 +73,12 @@ def _periods(daily: pd.DataFrame, code: str) -> pd.DataFrame:
     return frame
 
 
-def htf_levels(daily: pd.DataFrame) -> pd.DataFrame:
-    """Todos os pivôs confirmados: preço, peso, tempo gráfico, quando aconteceu e quando passou a ser conhecido."""
+def htf_levels(daily: pd.DataFrame, native: dict | None = None) -> pd.DataFrame:
+    """Todos os pivôs confirmados: preço, peso, tempo gráfico, quando aconteceu e quando passou a ser conhecido.
+    `native` = {"W": semanal, "M": mensal} da corretora; sem ele, semanal e mensal saem do diário."""
     rows = []
     for code, name, weight, k, _ in TIMEFRAMES:
-        frame = _periods(daily, code)
+        frame = _periods(daily, code, (native or {}).get(code))
         if len(frame) < 2 * k + 1:
             continue
         piv = find_pivots(frame, k)
@@ -142,19 +149,45 @@ def zones_at(levels: pd.DataFrame | LevelSet, when: pd.Timestamp, atr: float) ->
     return Zones(np.array(low), np.array(high), np.array(weight, dtype=float), label)
 
 
-def prepare(daily: pd.DataFrame | None) -> tuple[LevelSet, pd.Series] | None:
+def prepare(daily: pd.DataFrame | None, native: dict | None = None) -> tuple[LevelSet, pd.Series] | None:
     """Níveis e ATR diário (a parte cara, reaproveitável enquanto o diário não muda)."""
     if daily is None or len(daily) < 60:
         return None
-    frame_levels = htf_levels(daily)
+    frame_levels = htf_levels(daily, native)
     if frame_levels.empty:
         return None
     return LevelSet.from_frame(frame_levels), daily_atr(daily).dropna()
 
 
+USER_WEIGHT = 6  # zona desenhada pelo usuário no MT5 vale mais que qualquer combinação automática
+
+
+@dataclass
+class UserZone:
+    low: float
+    high: float
+    since: pd.Timestamp  # quando o AURUM viu a zona pela primeira vez: antes disso ela não existia para o sinal
+    label: str = "Sua zona (MT5)"
+
+
+def with_user_zones(z: Zones, user: list[UserZone], atr: float) -> Zones:
+    """Acrescenta as zonas desenhadas pelo usuário (linhas ganham a mesma folga das zonas automáticas)."""
+    if not user:
+        return z
+    pad = atr * PAD_ATR if np.isfinite(atr) else 0.0
+    return Zones(np.concatenate([z.low, [u.low - pad for u in user]]),
+                 np.concatenate([z.high, [u.high + pad for u in user]]),
+                 np.concatenate([z.weight, [float(USER_WEIGHT)] * len(user)]),
+                 list(z.label) + [u.label for u in user])
+
+
 def zone_features(df: pd.DataFrame, tf_seconds: int, daily: pd.DataFrame | None,
-                  prepared: tuple[LevelSet, pd.Series] | None = None) -> pd.DataFrame | None:
-    """Leitura das zonas em cada candle do gráfico de entrada (usa df["atr"] do próprio gráfico)."""
+                  prepared: tuple[LevelSet, pd.Series] | None = None,
+                  user_zones: list[UserZone] | None = None) -> pd.DataFrame | None:
+    """Leitura das zonas em cada candle do gráfico de entrada (usa df["atr"] do próprio gráfico).
+
+    Zonas do usuário só valem nos candles que fecharam depois de o AURUM vê-las (`since`): o histórico e o
+    backtest continuam medindo só as zonas automáticas, sem vantagem de quem desenhou olhando o gráfico pronto."""
     if "atr" not in df:
         return None
     prepared = prepared or prepare(daily)
@@ -175,15 +208,22 @@ def zone_features(df: pd.DataFrame, tf_seconds: int, daily: pd.DataFrame | None,
     flags = {name: np.zeros(n, dtype=bool) for name in ("sup_touch", "sup_reject", "res_touch", "res_reject",
                                                          "break_up", "break_down")}
     labels = {name: np.empty(n, dtype=object) for name in ("sup_label", "res_label", "bup_label", "bdn_label")}
-    cache: dict[int, Zones] = {}
+    cache: dict[tuple[int, int], Zones] = {}
+    user = sorted(user_zones or [], key=lambda u: u.since)
+    user_since = np.array([pd.Timestamp(u.since).as_unit("ns").value for u in user], dtype="int64")
+    known_user = np.searchsorted(user_since, closes_at.as_unit("ns").asi8, side="right") if user else np.zeros(n, int)
+    group_key = snap_pos.astype("int64") * 1_000_000 + known_user
 
-    for pos in np.unique(snap_pos):
-        rows = np.flatnonzero(snap_pos == pos)
+    for key in np.unique(group_key):
+        rows = np.flatnonzero(group_key == key)
+        pos, k_user = int(key // 1_000_000), int(key % 1_000_000)
         if pos < 0:
             continue
-        if pos not in cache:
-            cache[pos] = zones_at(levels, atr_d.index[pos], float(atr_d.iat[pos]))
-        z = cache[pos]
+        if (pos, k_user) not in cache:
+            base = cache.get((pos, 0)) or zones_at(levels, atr_d.index[pos], float(atr_d.iat[pos]))
+            cache[(pos, 0)] = base
+            cache[(pos, k_user)] = with_user_zones(base, user[:k_user], float(atr_d.iat[pos]))
+        z = cache[(pos, k_user)]
         if not len(z):
             continue
         zl, zh, zw = z.low[None, :], z.high[None, :], z.weight[None, :]
@@ -226,7 +266,8 @@ def zone_features(df: pd.DataFrame, tf_seconds: int, daily: pd.DataFrame | None,
             out["near_res"][rows] = (out["next_res"][rows] - c[rows]) / atr[rows]
 
     frame = pd.DataFrame({**out, **flags, **labels}, index=df.index)
-    frame.attrs["zones_now"] = cache.get(int(snap_pos[-1])) if len(snap_pos) and snap_pos[-1] >= 0 else None
+    frame.attrs["zones_now"] = (cache.get((int(snap_pos[-1]), int(known_user[-1])))
+                                if len(snap_pos) and snap_pos[-1] >= 0 else None)
     return frame
 
 
@@ -241,10 +282,12 @@ GOLD_POINT = 0.01  # XAU/USD com 2 casas: 1 ponto = US$ 0,01 (1.500 pontos = US$
 BIG_CANDLE_ATR = 3.0  # outros ativos: vela gigante = mais de 3 ATR
 
 
-def big_candle_limit(symbol: str, atr: pd.Series, points: float) -> pd.Series:
-    """Tamanho máximo da vela de entrada: pontos no ouro (padrão 1.500 = US$ 15), 3 ATR nos demais ativos."""
+def big_candle_limit(symbol: str, atr: pd.Series, points: float, point: float | None = None) -> pd.Series:
+    """Tamanho máximo da vela de entrada: pontos no ouro (padrão 1.500 = US$ 15), 3 ATR nos demais ativos.
+
+    `point` = tamanho do ponto na corretora (MT5); sem ele, o ouro com 2 casas (0,01)."""
     if symbol in GOLD_SYMBOLS and points > 0:
-        return pd.Series(points * GOLD_POINT, index=atr.index)
+        return pd.Series(points * (point or GOLD_POINT), index=atr.index)
     return atr * BIG_CANDLE_ATR
 
 
@@ -255,47 +298,57 @@ def pullback_breakouts(df: pd.DataFrame, feat: pd.DataFrame, big_limit: pd.Serie
     Percorre os candles em ordem usando só o que já tinha fechado em cada um (fundo confirmado k candles depois).
     """
     n = len(df)
-    o, h, l, c = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
-    atr = df["atr"].to_numpy(float)
+    h, l, c = (df[k].to_numpy(float) for k in ("high", "low", "close"))
+    atr = np.nan_to_num(df["atr"].to_numpy(float), nan=0.0, posinf=0.0, neginf=0.0)
     limit = big_limit.reindex(df.index).to_numpy(float)
     k = SWING_K
+    # Fundo/topo em j: extremo da janela j-k..j+k. Calculado de uma vez; o laço só consulta em i = j + k,
+    # quando os k candles seguintes já fecharam (nada do futuro entra na decisão).
+    swing_low, swing_high = np.zeros(n, bool), np.zeros(n, bool)
+    if n >= 2 * k + 1:
+        windows = np.lib.stride_tricks.sliding_window_view
+        swing_low[k:n - k] = l[k:n - k] <= windows(l, 2 * k + 1).min(axis=1)
+        swing_high[k:n - k] = h[k:n - k] >= windows(h, 2 * k + 1).max(axis=1)
+    hl, ll, cl, al = h.tolist(), l.tolist(), c.tolist(), atr.tolist()  # floats do Python: bem mais rápidos no laço
     cols: dict[str, np.ndarray] = {}
     for side, long in (("pbl", True), ("pbs", False)):
-        brk_flag = feat["break_up" if long else "break_down"].to_numpy(bool)
-        z_lo_arr = feat["bup_low" if long else "bdn_low"].to_numpy(float)
-        z_hi_arr = feat["bup_high" if long else "bdn_high"].to_numpy(float)
+        brk_flag = feat["break_up" if long else "break_down"].to_numpy(bool).tolist()
+        z_lo_arr = feat["bup_low" if long else "bdn_low"].to_numpy(float).tolist()
+        z_hi_arr = feat["bup_high" if long else "bdn_high"].to_numpy(float).tolist()
         z_lab_arr = feat["bup_label" if long else "bdn_label"].to_numpy(object)
+        is_swing_at = (swing_low if long else swing_high).tolist()
+        extreme = ll if long else hl  # fundo (compra) ou topo (venda) da correção
         broken, corrected, crossed = np.zeros(n, bool), np.zeros(n, bool), np.zeros(n, bool)
         trigger, stop, zone_lo, zone_hi = (np.full(n, np.nan) for _ in range(4))
         label = np.empty(n, dtype=object)
         state, start, swing, trig = 0, 0, np.nan, np.nan
         lo = hi = np.nan
         lab = None
+        peak = np.nan  # topo (compra) ou fundo (venda) desde o rompimento até o candle j
         for i in range(n):
-            a = atr[i] if np.isfinite(atr[i]) else 0.0
+            a = al[i]
             if brk_flag[i]:  # novo rompimento de zona principal: começa (ou recomeça) o padrão
                 state, start = 1, i
                 lo, hi, lab = z_lo_arr[i], z_hi_arr[i], z_lab_arr[i]
                 swing, trig = np.nan, np.nan
+                peak = hl[i] if long else ll[i]
             elif state:
-                failed = (c[i] < lo - FAIL_ATR * a) if long else (c[i] > hi + FAIL_ATR * a)
+                failed = (cl[i] < lo - FAIL_ATR * a) if long else (cl[i] > hi + FAIL_ATR * a)
                 if failed or i - start > MAX_SETUP_BARS:
                     state = 0
             if state and i > start:
                 j = i - k  # fundo/topo em j só é confirmado agora, k candles depois
-                if j > start and j - k >= 0:
-                    window = l[j - k:i + 1] if long else h[j - k:i + 1]
-                    is_swing = (l[j] <= window.min()) if long else (h[j] >= window.max())
-                    peak = (h[start:j + 1].max()) if long else (l[start:j + 1].min())
-                    depth = (peak - l[j]) if long else (h[j] - peak)
-                    held = (l[j] >= lo - FAIL_ATR * a) if long else (h[j] <= hi + FAIL_ATR * a)
-                    if is_swing and held and depth >= MIN_PULLBACK_ATR * a:
-                        better = state == 1 or (l[j] < swing if long else h[j] > swing)
-                        if better:
-                            swing = l[j] if long else h[j]
-                        if state == 1:
-                            trig = peak
-                        state = 2
+                if j > start:
+                    peak = max(peak, hl[j]) if long else min(peak, ll[j])
+                    if j - k >= 0:
+                        depth = (peak - ll[j]) if long else (hl[j] - peak)
+                        held = (ll[j] >= lo - FAIL_ATR * a) if long else (hl[j] <= hi + FAIL_ATR * a)
+                        if is_swing_at[j] and held and depth >= MIN_PULLBACK_ATR * a:
+                            if state == 1 or (extreme[j] < swing if long else extreme[j] > swing):
+                                swing = extreme[j]
+                            if state == 1:
+                                trig = peak
+                            state = 2
             if state:
                 broken[i] = True
                 zone_lo[i], zone_hi[i], label[i] = lo, hi, lab
@@ -303,10 +356,11 @@ def pullback_breakouts(df: pd.DataFrame, feat: pd.DataFrame, big_limit: pd.Serie
                 corrected[i] = True
                 trigger[i] = trig
                 stop[i] = (swing - STOP_ATR * a) if long else (swing + STOP_ATR * a)
-                if (c[i] > trig) if long else (c[i] < trig):
+                if (cl[i] > trig) if long else (cl[i] < trig):
                     crossed[i] = True
-                    if h[i] - l[i] > limit[i]:  # vela gigante rompeu: espera outra correção
+                    if hl[i] - ll[i] > limit[i]:  # vela gigante rompeu: espera outra correção
                         state, start, swing, trig = 1, i, np.nan, np.nan
+                        peak = hl[i] if long else ll[i]
                     else:
                         state = 0  # entrada feita neste fechamento; o padrão recomeça do zero
         cols.update({f"{side}_broken": broken, f"{side}_corrected": corrected, f"{side}_crossed": crossed,

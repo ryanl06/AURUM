@@ -22,6 +22,8 @@ from .strategy import BUY, Setup
 IN_SAMPLE_SHARE = 0.7
 QUALITY_MIN_TRADES = 15
 QUALITY_MIN_PF = 0.9
+RELIABLE_MIN_TRADES = 10  # abaixo disso a confiabilidade é INDEFINIDA
+RELIABLE_HIGH_TRADES = 20  # ALTA exige pelo menos 20 sinais fora da amostra
 
 Gate = Callable[[Setup, int, float, float], bool]
 
@@ -161,21 +163,28 @@ def reliability(bt: dict) -> dict:
     """Confiabilidade do ativo + tempo gráfico, medida fora da amostra (período recente)."""
     oos = bt["recent_filtered"]
     n, pf = oos["trades"], oos["profit_factor"]
-    if n >= 20 and pf is not None and pf >= 1.1:
-        level = "ALTA"
-    elif n >= 10 and pf is not None and pf >= 0.95:
-        level = "MÉDIA"
-    elif n < 10:
-        level = "INDEFINIDA"
+    if pf is None and n:  # nenhuma perda na amostra: fator "infinito" (acontece com poucos sinais)
+        pf_value, pf_text = float("inf"), "sem perdas"
     else:
+        pf_value, pf_text = pf, (f"fator {pf:.2f}".replace(".", ",") if pf is not None else "fator —")
+    if n < RELIABLE_MIN_TRADES:
+        level = "INDEFINIDA"
+    elif pf_value < 0.95:
         level = "BAIXA"
-    pf_text = f"{pf:.2f}".replace(".", ",") if pf is not None else "—"
-    short = {
-        "ALTA": f"regras ativas ganharam no período recente (fator {pf_text}, {n} sinais)",
-        "MÉDIA": f"resultado perto do empate no período recente (fator {pf_text}, {n} sinais)",
-        "BAIXA": f"no período recente as regras perderam dinheiro aqui (fator {pf_text}, {n} sinais)",
-        "INDEFINIDA": f"poucos sinais no período recente para medir ({n})",
-    }[level]
+    elif n >= RELIABLE_HIGH_TRADES and pf_value >= 1.1:
+        level = "ALTA"
+    else:
+        level = "MÉDIA"
+    if level == "MÉDIA" and pf_value >= 1.1:
+        short = (f"ganhou no período recente, mas com amostra pequena ({pf_text}, {n} sinais; "
+                 f"ALTA exige {RELIABLE_HIGH_TRADES} ou mais)")
+    else:
+        short = {
+            "ALTA": f"regras ativas ganharam no período recente ({pf_text}, {n} sinais)",
+            "MÉDIA": f"resultado perto do empate no período recente ({pf_text}, {n} sinais)",
+            "BAIXA": f"no período recente as regras perderam dinheiro aqui ({pf_text}, {n} sinais)",
+            "INDEFINIDA": f"poucos sinais no período recente para medir ({n})",
+        }[level]
     return {"level": level, "trades": n, "profit_factor": pf, "short": short}
 
 

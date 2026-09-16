@@ -152,7 +152,7 @@ def init() -> None:
         _initialized = True
 
 
-SETTINGS_VERSION = 6
+SETTINGS_VERSION = 7
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -168,6 +168,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET value = '15m' WHERE key = 'scan_timeframe'")
     if version < 6:  # método do usuário no ouro: rompimento de zona + pullback + novo rompimento
         conn.execute("UPDATE settings SET value = 'pullback' WHERE key = 'strategy_mode' AND value = 'zonas'")
+    if version < 7:  # o usuário passou a operar pelo MetaTrader 5 (o MT4 saiu do projeto)
+        conn.execute("INSERT OR REPLACE INTO settings(key, value) VALUES ('use_mt5', '1')")
+        conn.execute("DELETE FROM settings WHERE key IN ('use_mt4', 'mt4_suffix')")
     columns = {r[1] for r in conn.execute("PRAGMA table_info(positions)")}
     for column in ("result_r", "pnl_money"):
         if column not in columns:
@@ -245,11 +248,6 @@ def history(symbol: str | None = None, timeframe: str | None = None, limit: int 
     params.append(limit)
     with connect() as conn:
         return _rows(conn.execute(query, params))
-
-
-def last_analysis(symbol: str, timeframe: str) -> dict | None:
-    rows = history(symbol, timeframe, limit=1)
-    return rows[0] if rows else None
 
 
 # ---------------------------------------------------------------- estado do sinal (detecção de mudança)

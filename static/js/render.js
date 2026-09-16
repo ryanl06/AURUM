@@ -98,11 +98,13 @@ export function adjustTicket(t, realPrice) {
 }
 
 const isCrypto = (t) => t.kind === "crypto";
+const isMt5 = (t) => t.kind === "mt5";
 const moneyOf = (t, v) => `${t.currency_symbol || "R$"} ${fmtNum(v, 2)}`;
-const distUnit = (t) => (t.kind === "b3fut" ? "pts" : isCrypto(t) ? t.currency : "R$/ação");
+const distUnit = (t) => (t.kind === "b3fut" ? "pts" : isCrypto(t) ? t.currency : isMt5(t) ? "pontos" : "R$/ação");
 
 function quantityText(t) {
   if (isCrypto(t)) return `${fmtNum(t.quantity, t.qty_decimals)} ${t.unit}`;
+  if (isMt5(t)) return `${fmtNum(t.quantity, t.qty_decimals)} lote${t.quantity === 1 ? "" : "s"}`;
   return `${fmtNum(t.quantity, 0)} ${t.quantity === 1 ? t.unit : t.unit === "ação" ? "ações" : "contratos"}`;
 }
 
@@ -110,7 +112,7 @@ function quantityText(t) {
 function xpValue(t, field) {
   if (field.value !== undefined) return field.value;
   if (field.key === "code") return t.code;
-  if (field.key === "quantity") return isCrypto(t) ? fmtNum(t.quantity, t.qty_decimals) : fmtNum(t.quantity, 0);
+  if (field.key === "quantity") return isCrypto(t) || isMt5(t) ? fmtNum(t.quantity, t.qty_decimals) : fmtNum(t.quantity, 0);
   if (field.key === "oco_quantity") return fmtNum(t.oco_quantity, t.qty_decimals);
   return fmtPrice(t[field.key], t.decimals);
 }
@@ -120,7 +122,7 @@ export function ticketText(t) {
   const pts = distUnit(t);
   const units = quantityText(t);
   const money = (v) => moneyOf(t, v);
-  if (t.mode === "exit" || isCrypto(t)) return t.text;
+  if (t.mode === "exit" || isCrypto(t) || isMt5(t)) return t.text;
   return [
     "AURUM → ORDEM PARA A XP",
     `Ativo: ${t.code} · ${t.name}${t.expiry_label ? ` (vence ${t.expiry_label})` : ""}`,
@@ -171,7 +173,7 @@ function renderTicket(a) {
   const d = t.decimals;
   const pts = distUnit(t);
   const where = t.exchange || "XP";
-  $("ticket-title").textContent = `Ordem para a ${where}`;
+  $("ticket-title").textContent = isMt5(t) ? "Ordem para o MetaTrader 5" : `Ordem para a ${where}`;
   const showAdjust = t.mode === "entry" && (original.approximate || a.market.delayed || t.adjusted);
   body.innerHTML = `
     ${showAdjust ? `
@@ -183,17 +185,19 @@ function renderTicket(a) {
              value="${t.adjusted ? fmtPrice(saved.price, d) : ""}" data-code="${esc(t.code)}">
     </div>` : ""}
     <div class="ticket-grid">
-      <div class="tk wide"><span>${isCrypto(t) ? "Par na Binance" : "Ativo (código na XP)"}</span><b>${esc(t.code)}</b><small>${esc(t.name)}${t.expiry_label ? ` · vence ${esc(t.expiry_label)}` : ""}</small></div>
+      <div class="tk wide"><span>${isCrypto(t) ? "Par na Binance" : isMt5(t) ? "Símbolo no MT5" : "Ativo (código na XP)"}</span><b>${esc(t.code)}</b><small>${esc(t.name)}${t.expiry_label ? ` · vence ${esc(t.expiry_label)}` : ""}</small></div>
       <div class="tk ${["COMPRA", "COMPRAR"].includes(t.side) ? "side-buy" : "side-sell"}"><span>Operação</span><b>${esc(t.side)}</b><small>${esc(t.action)}</small></div>
-      <div class="tk"><span>Quantidade</span><b>${esc(quantityText(t))}</b><small>${esc(t.lot_note || (isCrypto(t) ? `~${moneyOf(t, t.notional)} · taxas ~${moneyOf(t, t.fees_money)}` : t.order_type))}</small></div>
+      <div class="tk"><span>Quantidade</span><b>${esc(quantityText(t))}</b><small>${esc(t.lot_note || (isCrypto(t) ? `~${moneyOf(t, t.notional)} · taxas ~${moneyOf(t, t.fees_money)}`
+        : isMt5(t) ? `saldo ${moneyOf(t, t.balance)} · spread ~${moneyOf(t, t.fees_money)}` : t.order_type))}</small></div>
       ${t.mode === "exit" ? "" : `
       <div class="tk"><span>Entrada</span><b>${fmtPrice(t.entry, d)}</b><small>${esc(t.order_type)}</small></div>
-      <div class="tk stop"><span>Stop · disparo</span><b>${fmtPrice(t.stop, d)}</b><small>limite ${fmtPrice(t.stop_limit, d)} · ${fmtPrice(t.stop_points, d)} ${pts}</small></div>
+      <div class="tk stop"><span>Stop · disparo</span><b>${fmtPrice(t.stop, d)}</b><small>${isMt5(t) ? `${fmtNum(t.stop_points, 0)} ${pts}` : `limite ${fmtPrice(t.stop_limit, d)} · ${fmtPrice(t.stop_points, d)} ${pts}`}</small></div>
       <div class="tk target"><span>Alvo 1</span><b>${fmtPrice(t.target1, d)}</b><small>realização parcial</small></div>
-      <div class="tk target"><span>Alvo 2 · stop gain</span><b>${fmtPrice(t.target2, d)}</b><small>${fmtPrice(t.target_points, d)} ${pts}</small></div>
+      <div class="tk target"><span>Alvo 2 · stop gain</span><b>${fmtPrice(t.target2, d)}</b><small>${isMt5(t) ? fmtNum(t.target_points, 0) : fmtPrice(t.target_points, d)} ${pts}</small></div>
       <div class="tk"><span>Risco</span><b class="down">${moneyOf(t, t.risk_money)}</b><small>se bater o stop</small></div>
       <div class="tk"><span>Ganho no alvo 2</span><b class="up">${moneyOf(t, t.reward_money)}</b><small>antes de custos</small></div>
-      <div class="tk wide"><span>Janela</span><b>${esc(t.window || "—")}</b><small>tick ${fmtNum(t.tick, t.tick < 1 ? 2 : 0)} · ${t.kind === "b3fut" ? `R$ ${fmtNum(t.point_value, 2)} por ponto` : isCrypto(t) ? `validade ${esc(t.validity)}` : "R$ 0,01 por ação"}</small></div>`}
+      <div class="tk wide"><span>Janela</span><b>${esc(t.window || "—")}</b><small>${isMt5(t) ? `bid ${fmtPrice(t.bid, d)} · ask ${fmtPrice(t.ask, d)} · tick ${fmtNum(t.tick, d)}`
+        : `tick ${fmtNum(t.tick, t.tick < 1 ? 2 : 0)} · ${t.kind === "b3fut" ? `R$ ${fmtNum(t.point_value, 2)} por ponto` : isCrypto(t) ? `validade ${esc(t.validity)}` : "R$ 0,01 por ação"}`}</small></div>`}
     </div>
     ${t.warnings.length ? `<ul class="ticket-warn">${t.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
     ${(t.xp_orders || []).length ? `<div class="xp-orders">${t.xp_orders.map((o) => `
@@ -202,53 +206,66 @@ function renderTicket(a) {
         ${o.fields.map((f) => `<div class="xp-field"><span>${esc(f.label)}</span><b>${esc(xpValue(t, f))}</b></div>`).join("")}
         ${o.note ? `<small>${esc(o.note)}</small>` : ""}
       </div>`).join("")}</div>` : ""}
-    <details class="ticket-steps"><summary>Como enviar na ${esc(where)}</summary><ol>${t.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>`;
+    <details class="ticket-steps"><summary>Como enviar ${isMt5(t) ? "no MetaTrader 5" : `na ${esc(where)}`}</summary><ol>${t.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>`;
 }
 
 export function renderMt5(status) {
   const chip = $("mt5-chip");
   const body = $("mt5-body");
   if (!status) return;
+  const zones = status.user_zones || {};
+  const zoneLine = zones.exists
+    ? `<li><b>Suas zonas:</b> ${zones.count} desenhada${zones.count === 1 ? "" : "s"}${Object.keys(zones.by_symbol || {}).length
+      ? ` (${Object.entries(zones.by_symbol).map(([k, v]) => `${esc(k)}: ${v}`).join(", ")})` : ""} · indicador ${zones.active ? "ativo" : "parado"}</li>`
+    : status.indicator_installed
+      ? "<li><b>Suas zonas:</b> o indicador AURUM_Zonas já está no MT5 — falta arrastá-lo para <b>um</b> gráfico (Navegador → Indicadores) e desenhar as zonas</li>"
+      : "<li><b>Suas zonas:</b> indicador AURUM_Zonas ainda não instalado (veja o passo a passo abaixo)</li>";
   if (!status.enabled) {
-    chip.textContent = "XP Unity";
-    chip.className = "chip tone-buy";
-    body.innerHTML = `
-      <p>Você envia as ordens no <b>XP Unity</b> (home broker gratuito da XP) e o AURUM cuida da análise, do risco e da boleta.</p>
-      <ol>
-        <li>Abra o <a href="https://www.xpi.com.br/home-broker/" target="_blank" rel="noopener">XP Unity</a> e deixe o ativo aberto (ex.: o código <b>WDO</b> do vencimento mostrado na boleta).</li>
-        <li>Quando o AURUM mostrar <b>ENTRAR AGORA</b>, digite no campo <b>“Preço agora no XP Unity”</b> o último preço da XP.</li>
-        <li>Copie a ordem e preencha a boleta: lado, quantidade, stop (disparo e limite) e alvo.</li>
-        <li>Clique em <b>Já entrei</b> aqui para o AURUM acompanhar a saída.</li>
-      </ol>
-      <p class="small muted">Os preços do WDO/WIN no AURUM vêm de referências públicas (dólar à vista e Ibovespa) e as ações da B3 têm atraso de ~15 min. Direção e horário do sinal valem; o preço exato é sempre o da XP — por isso o campo de ajuste. Prefira os tempos gráficos de 15m ou 1h.</p>`;
+    chip.textContent = "MT5 desligado";
+    chip.className = "chip";
+    body.innerHTML = `<p>Ligue <b>Usar MetaTrader 5</b> em ⚙ para o AURUM usar os preços, o histórico, as especificações do ativo e as zonas que você desenha no MT5.</p>`;
     return;
   }
-  const on = status.connected && status.enabled;
-  chip.textContent = on ? "MT5 conectado" : status.enabled ? "MT5 desconectado" : "MT5 desligado";
-  chip.className = `chip ${on ? "tone-buy" : ""}`;
+  const on = status.connected;
   const term = status.terminal || {};
+  const account = term.demo === true ? "conta DEMO" : term.demo === false ? "conta REAL" : "";
+  chip.textContent = on ? `MT5 conectado${account ? ` · ${account.replace("conta ", "")}` : ""}` : status.connecting ? "conectando…" : "MT5 desconectado";
+  chip.className = `chip ${on ? (term.demo === false ? "tone-prepare" : "tone-buy") : ""}`;
+  const symbols = Object.entries(status.symbols || {});
+  const offset = status.server_offset_hours;
+  const installed = status.indicator_installed;
+  const guide = `
+    <details class="mt5-guide"${on && zones.exists ? "" : " open"}><summary>${installed ? "Usar o indicador das suas zonas" : "Instalar o indicador das suas zonas"}</summary><ol>
+      ${installed ? "" : `<li>No MT5: <b>Arquivo → Abrir pasta de dados → MQL5 → Indicators</b>. Copie para lá o arquivo <code>AURUM_Zonas.mq5</code> (pasta <code>mt5</code> do AURUM).</li>`}
+      <li>No <b>Navegador</b> do MT5, clique com o botão direito em <b>Indicadores → Atualizar</b>.</li>
+      <li>Arraste <b>AURUM_Zonas</b> para <b>um</b> gráfico qualquer. Ele lê as linhas horizontais e os retângulos de todos os gráficos abertos.</li>
+      <li>Desenhe suas zonas (linha horizontal ou retângulo). No campo <b>Descrição</b> do objeto, dê um nome se quiser (ex.: “Resistência semanal”).</li>
+    </ol><p class="small muted">O indicador só grava os desenhos num arquivo — não envia ordens nem altera nada no MT5.</p></details>`;
   body.innerHTML = on
-    ? `<div class="xp-status on"><i></i><div><b>${esc(term.company || "MetaTrader 5")}</b><br><span class="small">${esc(term.server || "")} · cotações em tempo real ativas</span></div></div>
-       <p>WDO, WIN e ações da B3 agora vêm direto do seu MetaTrader 5. O AURUM só lê preços — as ordens continuam com você.</p>
-       <button class="btn btn-ghost btn-xs" id="btn-mt5-reconnect">Reconectar</button>`
-    : `<div class="xp-status"><i></i><div><b>Usando fontes públicas</b><br><span class="small">${esc(status.enabled ? (status.error || "MetaTrader 5 não encontrado.") : "Ligue “Usar MetaTrader 5” em ⚙.")}</span></div></div>
+    ? `<div class="xp-status on"><i></i><div><b>${esc(term.company || "MetaTrader 5")}</b><br><span class="small">${esc(term.server || "")}${term.currency ? ` · conta em ${esc(term.currency)}` : ""}${account ? ` · <b class="${term.demo ? "" : "down"}">${account}</b>` : ""}${term.leverage ? ` · alavancagem 1:${esc(term.leverage)}` : ""}</span></div></div>
+       <ul class="mt5-facts">
+         <li><b>Preços e histórico:</b> direto do MT5 (M15 com até 80 mil candles; semanal e mensal da própria corretora nas zonas)</li>
+         <li><b>Fuso do servidor:</b> ${offset === null || offset === undefined ? "—" : `UTC${offset >= 0 ? "+" : ""}${fmtNum(offset, offset % 1 ? 1 : 0)}`} <span class="muted">(${esc(status.offset_source || "")}${status.dst_convention ? " · muda com o horário de verão de Nova York; cada candle usa o fuso da sua época" : ""})</span></li>
+         <li><b>Ativos encontrados:</b> ${symbols.length ? symbols.map(([k, v]) => `${esc(k)} → <code>${esc(v)}</code>`).join(" · ") : "abra um ativo no painel"}</li>
+         ${zoneLine}
+       </ul>
+       <button class="btn btn-ghost btn-xs" id="btn-mt5-reconnect">Reconectar</button>${guide}`
+    : `<div class="xp-status"><i></i><div><b>Usando fontes públicas por enquanto</b><br><span class="small">${esc(status.error || "Procurando o MetaTrader 5…")}</span></div></div>
        <ol>
-         <li>Faça login no <a href="https://www.xpi.com.br/" target="_blank" rel="noopener">Portal XP</a> e vá em <b>Minha Conta → Ferramentas e Serviços → Assinaturas de plataformas e serviços</b> → contrate o <b>MetaTrader 5 Simulado</b> (treino) e/ou <b>MetaTrader 5</b> (real). Ele não aparece na busca da página pública de Plataformas — só dentro da área logada.</li>
-         <li>Login, senha e servidor chegam no seu e-mail. Baixe o instalador pelo link da própria página de assinatura.</li>
-         <li>Abra o MT5 e entre com servidor <code>XPMT5-Demo</code> (simulado) ou <code>XPMT5-PRD</code> (real).</li>
-         <li>Na conta real, defina o <b>limite de garantia</b> do MT5 no Portal XP.</li>
+         <li>Abra o <b>MetaTrader 5</b> e confirme que a conta está logada (canto inferior direito mostra a conexão).</li>
+         <li>Feche janelas de diálogo abertas no MT5 (elas travam a conexão).</li>
          ${status.installed ? "" : "<li>Feche o AURUM e abra de novo o <code>INICIAR_AURUM.bat</code> (ele instala o conector).</li>"}
-         <li>Com o MT5 aberto e logado, clique em <b>Reconectar</b>.</li>
+         <li>O AURUM conecta sozinho em até 10 segundos — ou clique em <b>Reconectar</b>.</li>
        </ol>
-       <p class="small"><a href="https://atendimento.xpi.com.br/artigo/1476-como-realizarcontratacao-e-instalacao-do-metatrader-5" target="_blank" rel="noopener">Guia oficial da XP</a> ·
-         <a href="https://atendimento.xpi.com.br/categoria/plataformas/metatrader-5" target="_blank" rel="noopener">Central de ajuda do MT5</a></p>
-       <button class="btn btn-gold btn-xs" id="btn-mt5-reconnect">Reconectar</button>`;
+       <ul class="mt5-facts">${zoneLine}</ul>
+       <button class="btn btn-gold btn-xs" id="btn-mt5-reconnect">Reconectar</button>${guide}`;
 }
 
 function renderHeader(a, isFavorite) {
   $("asset-name").textContent = a.asset.name;
-  $("asset-symbol").textContent = a.symbol;
-  $("asset-kind").textContent = KIND_LABEL[a.asset.kind] || a.asset.kind;
+  $("asset-symbol").textContent = a.asset.broker_symbol || a.symbol;  // com MT5: o código da corretora (ex.: XAUUSD)
+  $("asset-symbol").title = a.asset.broker_symbol ? `No AURUM: ${a.symbol}` : "";
+  $("asset-kind").textContent = a.asset.broker_symbol ? "À vista · MT5" : KIND_LABEL[a.asset.kind] || a.asset.kind;
   const market = $("market-status");
   market.className = `chip market ${a.market.open ? "open" : "closed"}`;
   market.querySelector("span").textContent = `${a.market.open ? "Mercado aberto" : "Mercado fechado"}${a.market.next_change_label ? ` · ${a.market.next_change_label}` : ""}`;
@@ -278,15 +295,15 @@ function renderHeader(a, isFavorite) {
   const realtime = (a.data_source || "").includes("tempo real");
   const approx = (a.data_source || "").includes("aproximada");
   const viaMt5 = (a.data_source || "").startsWith("MetaTrader");
-  source.textContent = realtime ? (viaMt5 ? "● MT5 tempo real" : "● Tempo real")
+  source.textContent = a.source_warning ? "⚠ Sem MT5 · Yahoo" : realtime ? (viaMt5 ? "● MT5 tempo real" : "● Tempo real")
     : approx ? "Referência aproximada" : a.market.delayed ? "Yahoo · atraso ~15 min" : "Yahoo Finance";
-  source.className = `chip ${realtime ? "tone-buy" : approx ? "tone-prepare" : ""}`;
-  source.title = `Fonte dos preços: ${a.data_source}`;
+  source.className = `chip ${a.source_warning ? "tone-prepare" : realtime ? "tone-buy" : approx ? "tone-prepare" : ""}`;
+  source.title = a.source_warning || `Fonte dos preços: ${a.data_source}`;
 
   const star = $("btn-fav");
   star.classList.toggle("on", isFavorite);
   star.title = isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos";
-  document.title = `${a.signal.title} · ${a.symbol} ${fmtPrice(a.price, a.decimals)} — AURUM`;
+  document.title = `${a.signal.title} · ${a.asset.broker_symbol || a.symbol} ${fmtPrice(a.price, a.decimals)} — AURUM`;
 }
 
 function renderSignal(a) {
@@ -351,7 +368,8 @@ function renderContextChips(a) {
   }
   if (c.risk?.blocked) chips.push('<span class="ctx bad">Limite do dia <b>ATINGIDO</b></span>');
   if (a.plan?.pips) {
-    chips.push(`<span class="ctx info" title="Stop do plano em pips">Stop <b>${fmtNum(a.plan.pips.stop, 1)} pips</b></span>`);
+    const unit = a.plan.pips.label || "pips";
+    chips.push(`<span class="ctx info" title="Stop do plano em ${unit}">Stop <b>${fmtNum(a.plan.pips.stop, unit === "pontos" ? 0 : 1)} ${unit}</b></span>`);
   }
   $("context-chips").innerHTML = chips.join("");
 }
@@ -407,11 +425,16 @@ function renderPlan(a) {
   const pips = p.pips;
   $("plan-pips").hidden = !pips;
   if (pips) {
+    const unit = pips.label || "pips";
+    const digits = unit === "pontos" ? 0 : 1;
+    const lotsTitle = unit === "pontos"
+      ? `Mesmos lotes da boleta: ${fmtNum(p.risk_pct, 1)}% do saldo da conta MT5. Cada ponto vale ${fmtNum(pips.pip_value_per_lot, 2)} ${esc(pips.currency || "USD")} por ${esc(pips.unit)}`
+      : `Tamanho para arriscar ${fmtNum(p.risk_pct, 1)}% do capital. Valor do pip por ${esc(pips.unit)}: ${fmtNum(pips.pip_value_per_lot, 2)} USD${pips.approx ? " (aproximado)" : ""}`;
     $("plan-pips").innerHTML = `
-      <div class="mini-stat" title="Distância do stop em pips"><span>Stop</span><b>${fmtNum(pips.stop, 1)} pips</b></div>
-      <div class="mini-stat" title="Distância do alvo 2 em pips"><span>Alvo 2</span><b>${fmtNum(pips.target2, 1)} pips</b></div>
-      <div class="mini-stat" title="Tamanho para arriscar ${fmtNum(p.risk_pct, 1)}% do capital. Valor do pip por ${esc(pips.unit)}: ${fmtNum(pips.pip_value_per_lot, 2)} USD${pips.approx ? " (aproximado)" : ""}">
-        <span>Lotes</span><b>${pips.lots === null ? "—" : fmtNum(pips.lots, 2)}${pips.approx ? "*" : ""}</b></div>`;
+      <div class="mini-stat" title="Distância do stop em ${unit}"><span>Stop · ${unit}</span><b>${fmtNum(pips.stop, digits)}</b></div>
+      <div class="mini-stat" title="Distância do alvo 2 em ${unit}"><span>Alvo 2 · ${unit}</span><b>${fmtNum(pips.target2, digits)}</b></div>
+      <div class="mini-stat" title="${lotsTitle}">
+        <span>Lotes</span><b>${pips.lots === null || pips.lots === undefined ? "—" : fmtNum(pips.lots, 2)}${pips.approx ? "*" : ""}</b></div>`;
   }
 
   const lv = a.context?.levels;
@@ -626,7 +649,7 @@ export function renderLivePrice(a, price) {
     change.textContent = `${fmtPct(pct)} ${a.timeframe.key === "1d" ? "no último dia" : "hoje"}`;
     change.className = `change mono ${pct >= 0 ? "up" : "down"}`;
   }
-  document.title = `${a.signal.title} · ${a.symbol} ${fmtPrice(price, a.decimals)} — AURUM`;
+  document.title = `${a.signal.title} · ${a.asset.broker_symbol || a.symbol} ${fmtPrice(price, a.decimals)} — AURUM`;
 }
 
 export function renderError(message) {

@@ -15,10 +15,10 @@ from . import database as db
 from . import market_data, news
 from .analysis import analyze
 from .assets import asset_info
-from .config import LOCAL_TZ, TIMEFRAMES
+from .config import LOCAL_TZ
 from .market_data import MarketDataError, get_candles, lookup_name
 from .notifier import notify_alert
-from .pipeline import context_snaps, exchange_for
+from .pipeline import context_snaps, exchange_for, zone_inputs
 
 log = logging.getLogger(__name__)
 
@@ -28,34 +28,72 @@ _cache: dict[tuple, tuple[float, dict]] = {}
 _CACHE_SECONDS = 5
 
 
+SLOW_ANALYSIS = 8.0  # segundos: acima disso o log mostra onde o tempo foi gasto
+_analysis_locks: dict[tuple[str, str], threading.Lock] = {}
+_analysis_locks_guard = threading.Lock()
+
+
+def _analysis_lock(symbol: str, timeframe: str) -> threading.Lock:
+    with _analysis_locks_guard:
+        return _analysis_locks.setdefault((symbol, timeframe), threading.Lock())
+
+
 def run_analysis(symbol: str, timeframe: str, *, force: bool = False, record: bool = False,
                  source: str = "painel") -> dict:
+    started = time.perf_counter()
+    stages: list[tuple[str, float]] = []
+
+    def stage(name: str) -> None:
+        stages.append((name, time.perf_counter()))
+
     settings = db.get_settings()
     market_data.configure(settings)
     snap = get_candles(symbol, timeframe, force=force)
+    stage("candles")
     if snap.name is None and asset_info(symbol)["name"] == symbol:
         snap.name = lookup_name(symbol)
-    htf_snap, daily_snap = context_snaps(symbol, timeframe)
+    htf_snap, daily_snap = context_snaps(symbol, timeframe, snap)
+    zones_in = zone_inputs(symbol, snap)
+    stage("contexto")
     position = db.open_position_for(symbol)
     guard = risk_state(settings)
     events = news.load()
+    exchange = exchange_for(symbol, snap)
+    stage("corretora e agenda")
 
     key = (symbol, timeframe, snap.fetched_at, htf_snap and htf_snap.fetched_at, daily_snap and daily_snap.fetched_at,
            position and position["id"], tuple(sorted(settings.items())), guard["blocked"], guard["trades_today"],
-           len(events))
-    cached = _cache.get(key)
-    if cached and time.time() - cached[0] < _CACHE_SECONDS and not record:
-        result = cached[1]
-    else:
-        # Cripto: boleta com as regras reais do par na Binance e capital convertido para USDT.
-        result = analyze(snap, settings, position, htf_snap=htf_snap, risk=guard, events=events,
-                         exchange=exchange_for(symbol), daily_snap=daily_snap)
-        _cache[key] = (time.time(), result)
-        _prune_cache()
+           len(events), tuple((u.low, u.high) for u in zones_in["user"]), bool(zones_in["native"]),
+           bool(exchange and exchange.get("mt5")))
+    # Painel, radar e scanner pedindo o mesmo ativo ao mesmo tempo: um calcula, os outros aproveitam o resultado.
+    lock = _analysis_lock(symbol, timeframe)
+    locked = lock.acquire(timeout=90)
+    try:
+        cached = _cache.get(key)
+        if cached and time.time() - cached[0] < _CACHE_SECONDS and not record:
+            result = cached[1]
+        else:
+            # Cripto: boleta com as regras reais do par na Binance e capital convertido para USDT.
+            result = analyze(snap, settings, position, htf_snap=htf_snap, risk=guard, events=events,
+                             exchange=exchange, daily_snap=daily_snap, zone_inputs=zones_in)
+            _cache[key] = (time.time(), result)
+            _prune_cache()
+            stage("análise")
+    finally:
+        if locked:
+            lock.release()
 
     result = {**result, "alerts": detect_changes(result, settings, record)}
     if record:
         db.save_analysis(result, source)
+    total = time.perf_counter() - started
+    if total > SLOW_ANALYSIS:
+        marks, previous = [], started
+        for name, at in stages:
+            marks.append(f"{name} {at - previous:.1f}s")
+            previous = at
+        log.warning("Análise lenta de %s %s (%s): %.1fs — %s · fonte %s", symbol, timeframe, source, total,
+                    ", ".join(marks), snap.source)
     return result
 
 
@@ -77,8 +115,9 @@ def detect_changes(result: dict, settings: dict, record: bool) -> list[dict]:
         if changed and (signal["action"] in ALERT_ACTIONS if state is not None
                         else signal["action"] in {"ENTRAR_AGORA", "SAIR_AGORA"}):
             created.append(_signal_alert(result))
-            if signal["action"] == "ENTRAR_AGORA":
-                db.record_signal(result)  # acompanhamento real: o resultado é conferido nos próximos candles
+            if signal["action"] == "ENTRAR_AGORA" and not result.get("source_warning"):
+                # Acompanhamento real: o resultado é conferido nos próximos candles — com a mesma fonte de preços.
+                db.record_signal(result)
 
         threshold = float(settings.get("price_move_alert_pct") or 0)
         moved = False
@@ -213,5 +252,6 @@ def radar(symbols: list[str], timeframe: str) -> list[dict]:
             "probability": a["forecast"]["probability"],
         }
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    # Análise é cálculo pesado em Python (uma thread por vez de fato): mais que 3 só disputa CPU com o painel.
+    with ThreadPoolExecutor(max_workers=3) as pool:
         return list(pool.map(one, symbols))
