@@ -62,6 +62,22 @@ nem altera nada. No AURUM elas aparecem como **Sua zona**, pesam mais que as aut
 Uma zona desenhada vale **a partir do momento em que o AURUM a vê**: o backtest não ganha vantagem de linhas traçadas
 olhando o gráfico pronto.
 
+## Widget flutuante (por cima do MT5)
+
+Dois cliques em **`WIDGET_AURUM.bat`** (ou `pythonw -m widget --symbol XAUUSD --tf 15m`): uma janela pequena, sem
+bordas e **sempre por cima** do MetaTrader 5, com o sinal atual (ENTRAR AGORA, PREPARE-SE, SAIR AGORA, PAUSA…), ativo,
+tempo gráfico, preço ao vivo, contagem até o fechamento do candle, entrada, stop loss, take profit, risco em % e em
+dinheiro, ganho no alvo, tamanho (lotes da boleta do MT5) e confiança. Só lê a API local — nunca envia ordens.
+
+- **Atualiza sozinho:** análise logo depois do fechamento de cada candle e a cada 10–60 s (igual ao painel), preço a
+  cada 3 s e na hora em que o AURUM detecta mudança de sinal. Mudou o sinal: a moldura pisca; em ENTRAR/SAIR toca um
+  som e, se estiver escondido, o widget reaparece (as duas coisas podem ser desligadas no menu).
+- **Ctrl+Alt+A** (de qualquer janela, inclusive com o MT5 em foco) mostra/esconde. Com o widget em foco: **Esc**
+  compacto/expandido, **+ / −** opacidade, **R** atualizar, **T** troca o tempo gráfico, **Ctrl+Q** fecha.
+- Arraste pelo topo; **clique direito** (ou ⋮) abre o menu: ativo (favoritos ou outro), tempo gráfico, opacidade,
+  sempre por cima, abrir o painel. Posição, opacidade e ativo ficam salvos em `data/widget.json`.
+- Com o AURUM desligado, o widget liga o servidor sozinho. Só com a biblioteca padrão do Python (tkinter).
+
 ## Estratégia padrão (XAU/USD no M15): rompimento de zona + pullback + novo rompimento
 
 Para comprar (a venda é o espelho):
@@ -157,6 +173,7 @@ app/
   news.py          agenda econômica · notifier.py: Telegram · database.py: SQLite
   indicators.py, levels.py, patterns.py, explain.py, assets.py, b3.py, config.py, main.py (API)
 mt5/AURUM_Zonas.mq5  indicador que exporta suas zonas do MT5 (somente leitura)
+widget/              widget flutuante (tkinter) que fica por cima do MT5 e lê a API local
 static/              painel (HTML, CSS, JavaScript)
 tests/               testes sem internet (dados sintéticos e MT5 simulado)
 ```
