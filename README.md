@@ -132,8 +132,9 @@ Tela, som, notificação do navegador e **Telegram** (⚙ → Alertas no Telegra
 **Descobrir meu chat id**, teste e salve). O scanner analisa favoritos, o ativo aberto e as operações abertas logo
 após o fechamento de cada candle.
 
-**Com o PC desligado (GitHub Actions):** `.github/workflows/aurum-nuvem.yml` roda a cada candle de 15 min (07h–16h45
-em dias úteis) e avisa no Telegram. Configure os secrets `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID` no repositório e os
+**Com o PC desligado (GitHub Actions):** `.github/workflows/aurum-nuvem.yml` pode rodar a cada candle de 15 min
+(07h–16h45 em dias úteis) e avisar no Telegram. **Vem desligado:** sem os secrets cada execução falhava e o GitHub
+mandava um e-mail. Para ligar, crie os secrets e tire o `#` das linhas `schedule` do arquivo. Configure os secrets `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID` no repositório e os
 ativos em `cloud_config.json`. Na nuvem não há MT5: o ouro vem do `GC=F` (futuro), dezenas de dólares acima do
 XAUUSD da corretora (US$ 36 em 16/09/2026) e com zonas próprias — confira gatilho e stop no seu MT5. Teste local: `python -m app.cloud --dry-run`.
 

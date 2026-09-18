@@ -6,11 +6,15 @@
 # O GitHub pode atrasar execuções agendadas alguns minutos nos horários de pico.
 name: AURUM nuvem
 
+#
+# DESLIGADO: os secrets TELEGRAM_TOKEN e TELEGRAM_CHAT_ID ainda não foram criados no repositório, então cada
+# execução falhava e o GitHub mandava um e-mail a cada 15 min. Para ligar: crie os dois secrets
+# (Settings → Secrets and variables → Actions), apague o "#" das 4 linhas de schedule abaixo e faça o push.
 on:
-  schedule:
-    - cron: "4,19,34,49 10-19 * * 1-5"  # seg–sex 07h–16h45 de Brasília: a cada candle de 15 min
-    - cron: "4 0-9,20-23 * * 1-5"       # seg–sex fora desse horário: de hora em hora
-    - cron: "4 */2 * * 0,6"             # sábado e domingo, a cada 2 horas (cripto não para)
+  # schedule:
+  #   - cron: "4,19,34,49 10-19 * * 1-5"  # seg–sex 07h–16h45 de Brasília: a cada candle de 15 min
+  #   - cron: "4 0-9,20-23 * * 1-5"       # seg–sex fora desse horário: de hora em hora
+  #   - cron: "4 */2 * * 0,6"             # sábado e domingo, a cada 2 horas (cripto não para)
   workflow_dispatch:         # botão "Run workflow" para testar na hora
 
 permissions:
@@ -49,7 +53,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           AURUM_DATA_DIR: ${{ runner.temp }}/aurum-data
           PYTHONIOENCODING: utf-8
-        run: python -m app.cloud
+        run: |
+          if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::warning::Secrets TELEGRAM_TOKEN e TELEGRAM_CHAT_ID não configurados: nada foi enviado."
+            exit 0
+          fi
+          python -m app.cloud
 
       - name: Guardar o estado para a próxima execução
         if: always() && hashFiles('cloud_state/state.json') != ''
